@@ -421,7 +421,6 @@ impl Supervisor {
         })
         .await
         .unwrap_or(None);
-        self.note_deleted_child_usage_captured(source, captured.unwrap_or(0));
     }
 
     /// The ephemeral stop's schedule cancel: a client-owned worker's schedules die with

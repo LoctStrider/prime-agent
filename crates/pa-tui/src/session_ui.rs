@@ -181,7 +181,6 @@ pub(crate) struct SessionUi {
     models_fetched_at: Option<std::time::Instant>,
     pasted_images: std::collections::BTreeMap<u64, LoadedImage>,
     next_image_marker_id: u64,
-    telemetry_disabled: Option<bool>,
     code_block_indent: String,
     tree_filter_mode: crate::tree_list::FilterMode,
     branch_summary_skip_prompt: bool,
@@ -359,10 +358,6 @@ pub(crate) struct SessionUi {
     pub(crate) compaction_settled: bool,
     pub(crate) window: window::TranscriptWindow,
     page_notes: mpsc::UnboundedSender<window::TranscriptPageNote>,
-    /// Adoption telemetry (counted into `tui exit`); `None` drops events.
-    pub(crate) telemetry: Option<std::sync::Arc<dyn crate::interactive::InteractionTelemetry>>,
-    scroll_adoption_emitted: bool,
-    pub(crate) exit_reason: &'static str,
     /// The §10 reattach contract: set when a `daemon_closing` update frame
     /// arrived; the interactive loop drives the reconnect from it.
     pub(crate) reconnect: Option<crate::daemon_client::DaemonClosingUpdate>,
@@ -413,9 +408,7 @@ pub(crate) struct SessionUi {
     /// The editor holds the user's own text (the Tab path's restored browse draft, or the text
     /// ctrl+l opened the picker over), not a typed command partial: a picker apply must keep it.
     picker_restored_draft: bool,
-    suspend_adoption_emitted: bool,
     selection_auto_scroll: Option<SelectionAutoScroll>,
-    selection_adoption_emitted: bool,
     /// Texts copied out by finished selections this run (headless runs
     /// have no terminal to write OSC 52 to; the verifier reads these).
     pub(crate) copies: Vec<String>,
@@ -427,7 +420,6 @@ pub(crate) struct SessionUi {
     /// The click target under the last plain left press: the release fires it
     /// when it lands on the same row without a drag between.
     pub(crate) pressed_click: Option<PressedClick>,
-    click_adoption_emitted: bool,
 }
 
 /// The reattach outcome for `reattach_after_recovery`: the budget expiry (a queued attach waiting
@@ -730,22 +722,13 @@ impl SessionUi {
                 "failed"
             }
         };
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.external_editor_used(settled).await;
-            });
-        }
+
         self.dirty = true;
     }
 
     /// Whether the `/mcp` view parked an auth request for the loop to spawn.
     pub(crate) fn pending_mcp_auth(&self) -> bool {
         self.pending_mcp_auth.is_some()
-    }
-
-    /// The `tui exit` reason recorded at the point the loop stopped.
-    pub(crate) fn exit_reason(&self) -> &'static str {
-        self.exit_reason
     }
 }
 

@@ -205,7 +205,6 @@ async fn turn_boundary_host_requests_round_trip_through_a_real_kernel() {
         rlm_depth: None,
         factory_child: false,
         daemonless: true,
-        telemetry: None,
         model_info: Some(registry_model()),
         mcp_manager: None,
         prewarm_ipython_kernel: None,

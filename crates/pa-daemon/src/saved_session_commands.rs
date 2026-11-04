@@ -663,9 +663,6 @@ impl Supervisor {
                 sessions_dir.as_deref().unwrap_or(&self.options.agent_dir),
                 &capture,
             );
-            if captured > 0 {
-                self.note_deleted_child_usage_captured("saved_delete", captured);
-            }
             // The deleted file's binding dies with it: a stale id for the
             // session can never rebind again. `canonical` was resolved while
             // the file still existed - the same key the table stores.

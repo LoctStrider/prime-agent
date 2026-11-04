@@ -49,7 +49,6 @@ pub(crate) mod self_update;
 pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
 pub(crate) mod subscription_login;
-pub(crate) mod telemetry_notice;
 pub(crate) mod traces_login;
 
 /// The runtime boundary: everything a mode-runner crate implements to plug
@@ -87,9 +86,6 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
 fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String> {
     use std::io::IsTerminal;
 
-    // Telemetry reports the version `--version` prints: the beta channel
-    // restamps only the packaged manifest, never the compiled-in version.
-    pa_telemetry::set_version(crate::config::version());
     pa_daemon::protocol::configure_app_version(crate::config::version())
         .map_err(|error| error.to_string())?;
 
@@ -233,11 +229,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     let agent_dir = crate::config::get_agent_dir();
-    // Telemetry opt-in resolution: env override, then settings; the
-    // runtime config only carries the disabled case.
-    let telemetry_disabled = crate::mode::telemetry_disabled(
-        &pa_core::settings::SettingsManager::create(&cwd, &agent_dir),
-    );
     let session_dir = parsed
         .session_dir
         .as_deref()
@@ -291,7 +282,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             agent_dir,
             session_dir.clone(),
             app_mode,
-            telemetry_disabled,
         ),
         session: mode::SessionOptions {
             continue_recent: parsed.continue_,

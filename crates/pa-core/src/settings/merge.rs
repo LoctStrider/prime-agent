@@ -40,7 +40,7 @@ fn merge_values(base: &mut Value, overrides: &Value) {
 }
 
 /// Migrate legacy settings shapes (queueMode, websockets, skills object,
-/// retry.maxDelayMs, telemetry bool, bad markdown).
+/// retry.maxDelayMs, bad markdown).
 pub fn migrate(document: &mut serde_json::Map<String, Value>) {
     if let Some(queue_mode) = document.remove("queueMode") {
         document.entry("steeringMode").or_insert(queue_mode);
@@ -87,17 +87,6 @@ pub fn migrate(document: &mut serde_json::Map<String, Value>) {
             }
         }
     }
-    match document.get_mut("telemetry") {
-        Some(Value::Bool(enabled)) => {
-            let mut map = serde_json::Map::new();
-            map.insert("enabled".into(), Value::Bool(*enabled));
-            document.insert("telemetry".into(), Value::Object(map));
-        }
-        Some(other) if !other.is_object() => {
-            document.remove("telemetry");
-        }
-        _ => {}
-    }
     if let Some(markdown) = document.get("markdown") {
         if !markdown.is_object() {
             document.remove("markdown");
@@ -136,7 +125,6 @@ mod tests {
             "websockets": true,
             "skills": { "enableSkillCommands": false, "customDirectories": ["/x"] },
             "retry": { "maxDelayMs": 5 },
-            "telemetry": true
         });
         let mut map = doc.as_object_mut().unwrap().clone();
         migrate(&mut map);
@@ -147,6 +135,5 @@ mod tests {
             map.get("retry"),
             Some(&json!({ "provider": { "maxRetryDelayMs": 5 } }))
         );
-        assert_eq!(map.get("telemetry"), Some(&json!({ "enabled": true })));
     }
 }

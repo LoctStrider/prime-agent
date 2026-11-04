@@ -421,9 +421,6 @@ struct SupervisorChildSessionsInner {
     /// and once per close walk, so a barrier parked behind descendant
     /// work re-reads the registry when the descendants settle.
     settle_notify: tokio::sync::Notify,
-    /// The model-allowlist refusal telemetry: `spawn`/`create_session`
-    /// refusals emit through the engine's shared lazily-built client.
-    model_refusal_telemetry: std::sync::Arc<crate::model_allowlist::ModelRefusalTelemetry>,
     /// The engine's child-usage attribution producer; it owns the target
     /// row and the durable append.
     usage_sink: std::sync::Mutex<Option<std::sync::Arc<dyn RlmChildUsageSink>>>,
@@ -458,7 +455,6 @@ impl SupervisorChildSessions {
         link: Arc<SupervisorLink>,
         agent_dir: PathBuf,
         parent_active_session_id: String,
-        model_refusal_telemetry: std::sync::Arc<crate::model_allowlist::ModelRefusalTelemetry>,
         worker_token: String,
     ) -> Self {
         Self {
@@ -478,7 +474,6 @@ impl SupervisorChildSessions {
                 settle_hook: std::sync::Mutex::new(None),
                 running: tokio::sync::watch::Sender::new(false),
                 settle_notify: tokio::sync::Notify::new(),
-                model_refusal_telemetry,
                 usage_sink: std::sync::Mutex::new(None),
                 delete_notifier: std::sync::Mutex::new(None),
                 child_update_sink: std::sync::Mutex::new(None),

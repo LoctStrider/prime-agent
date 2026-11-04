@@ -75,9 +75,7 @@ impl TurnBoundary {
             Some(Ok(CompactOutcome::Ran(run))) => {
                 // Adoption telemetry: every completed compaction counts
                 // into the active run.
-                if let Some(telemetry) = engine.telemetry.as_ref() {
-                    telemetry.note_compaction(Some(run.duration_ms));
-                }
+
                 // Every successful compaction schedules the compact-trigger
                 // auto-refine for the next checkpoint (or the disposal drain).
                 self.compact_auto_refine_pending = true;
@@ -127,9 +125,6 @@ impl TurnBoundary {
                     ));
                     match engine.session.compact(None, model, api_key, None).await {
                         Ok(CompactOutcome::Ran(run)) => {
-                            if let Some(telemetry) = engine.telemetry.as_ref() {
-                                telemetry.note_compaction(Some(run.duration_ms));
-                            }
                             self.compact_auto_refine_pending = true;
                             self.emit_ipython_state_row(&run);
                             self.emit_json(&compaction_end_success_event(
@@ -255,9 +250,7 @@ impl TurnBoundary {
             Ok(CompactOutcome::Ran(run)) => {
                 self.compact_auto_refine_pending = true;
                 self.emit_ipython_state_row(&run);
-                if let Some(telemetry) = engine.telemetry.as_ref() {
-                    telemetry.note_compaction(Some(run.duration_ms));
-                }
+
                 // The end event carries `willRetry: true` (the turn
                 // re-issues).
                 self.emit_json(&compaction_end_success_event(

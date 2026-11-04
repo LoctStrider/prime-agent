@@ -140,13 +140,6 @@ pub struct Supervisor {
     /// reuses the first one's worker instead of losing the runtime session lease.
     pub(crate) opening_files:
         std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Daemon-lifecycle telemetry (`daemon event` schema v1), resolved at
-    /// run start (None = opted out); never blocks supervision paths.
-    telemetry: std::sync::Mutex<Option<pa_telemetry::TelemetryClient>>,
-    /// The frequent supervision events (attach/detach, worker exits and
-    /// restarts, overloads, saved-session listings), counted and sent as
-    /// one `daemon event` summary per window instead of one event each.
-    daemon_event_counts: std::sync::Mutex<notes::DaemonEventCounts>,
     pub(crate) registry: SessionRegistry,
     /// Worker outbound frames, with their client routing. The payload is shared (`Arc`):
     /// a per-receiver deep `Value` clone would multiply the heap by the connection
@@ -260,8 +253,6 @@ impl Supervisor {
             worker_connect_budget: std::sync::Mutex::new(None),
             session_bindings: crate::session_bindings::SessionBindingTable::new(),
             opening_files: std::sync::Mutex::new(std::collections::HashMap::new()),
-            telemetry: std::sync::Mutex::new(None),
-            daemon_event_counts: std::sync::Mutex::default(),
             registry: SessionRegistry::new(),
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
@@ -305,24 +296,6 @@ impl Supervisor {
         // Before any socket or worker exists: workers and their kernels
         // inherit the raised limit.
         let open_file_limit = pa_core::platform::process::raise_open_file_limit();
-        // Daemon telemetry: same env/settings posture as the sessions
-        // (the supervisor is the `daemon` execution mode). Only an
-        // environment opt-out skips the client: a settings opt-out is the
-        // client's live switch, so `/telemetry on` resumes without a
-        // daemon restart.
-        {
-            let settings = pa_core::settings::SettingsManager::create(
-                std::env::current_dir().unwrap_or_default(),
-                &self.options.agent_dir,
-            );
-            let env_forced_off = matches!(
-                pa_core::session_engine::telemetry::telemetry_switch(&settings),
-                pa_core::session_engine::telemetry::TelemetrySwitch::Env { enabled: false, .. }
-            );
-            *self.telemetry.lock().unwrap() = (!env_forced_off).then(|| {
-                pa_core::session_engine::telemetry::build_client(&settings, &self.options.agent_dir)
-            });
-        }
         // Live model catalog (both fetch layers): the supervisor keeps the disk caches warm
         // for every worker it spawns — startup refresh plus the hourly loop, fire-and-forget.
         let _ = pa_core::models::startup_refresh(&self.options.agent_dir);
@@ -331,21 +304,6 @@ impl Supervisor {
         // cadence — startup refresh plus the hourly loop, failures keep the last-good cache.
         pa_core::mcp::startup_plugins_refresh(&self.options.agent_dir);
         pa_core::mcp::spawn_hourly_plugins_refresh(&self.options.agent_dir);
-        // Adoption telemetry: one `daemon event` (kind `catalog_refresh`) when the startup
-        // refresh settles — the served model count, primitives only.
-        {
-            let supervisor = Arc::clone(&self);
-            tokio::spawn(async move {
-                let agent_dir = &supervisor.options.agent_dir;
-                let catalog = pa_core::models::catalog_for(Some(&agent_dir.join("models.json")));
-                let credentials = pa_core::models::prime_credentials_for_dir(agent_dir);
-                catalog
-                    .refresh_with_credentials(false, credentials.as_ref())
-                    .await;
-                let count = catalog.resolve(credentials.as_ref()).len();
-                supervisor.note_catalog_refresh(count);
-            });
-        }
         // The first open's family walk reads the spawn ledger: replay it
         // while that open's worker launches, not on its reply path.
         {
@@ -517,7 +475,6 @@ impl Supervisor {
         // path survives even a poisoned bind-time capture.
         let expected_identity = self.bound_socket_identity.lock().unwrap().clone();
         socket::cleanup_socket_path_after_close(&self.options.socket_path, expected_identity);
-        self.flush_telemetry_on_exit().await;
         Ok(())
     }
 }

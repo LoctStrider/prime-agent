@@ -214,7 +214,6 @@ impl SessionUi {
     fn copy_selection(&mut self, text: &str, view: &mut AgentView) {
         let lines = text.lines().count().max(1);
         self.copies.push(text.to_string());
-        self.track_selection(lines);
         if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
             self.toast("Copied selection to clipboard", view);
             return;
@@ -411,28 +410,24 @@ impl SessionUi {
             // collapse here or it survives the scroll as a stale replace range.
             view.editor.clear_selection();
             self.window.scroll(-(view.page_size() as isize), view);
-            self.track_scroll("page_up", view.is_following());
             self.dirty = true;
             return Ok(());
         }
         if page_down {
             view.editor.clear_selection();
             self.window.scroll(view.page_size() as isize, view);
-            self.track_scroll("page_down", view.is_following());
             self.dirty = true;
             return Ok(());
         }
         if to_top {
             view.scroll_to_top();
             self.window.request_head();
-            self.track_scroll("top", view.is_following());
             self.dirty = true;
             return Ok(());
         }
         if follow {
             self.collapse_transcript_window(view);
             view.scroll_to_bottom();
-            self.track_scroll("follow", view.is_following());
             self.dirty = true;
             return Ok(());
         }
@@ -557,7 +552,6 @@ impl SessionUi {
             return Ok(());
         }
         if view.editor.keybindings().matches(&id, "app.exit") && view.editor.get_text().is_empty() {
-            self.exit_reason = "ctrl_d";
             *running = false;
             return Ok(());
         }
@@ -578,7 +572,6 @@ impl SessionUi {
             // A second press inside the hint window shuts down unconditionally —
             // no turn wait, no abort wait.
             if self.ctrl_c_hint_visible() && !interrupt {
-                self.exit_reason = "ctrl_c_twice";
                 *running = false;
                 return Ok(());
             }
@@ -625,7 +618,6 @@ impl SessionUi {
             // The picker opens over the user's own text (a draft or browsed
             // message), so its apply must keep it.
             self.picker_restored_draft = true;
-            self.track_menu_opened("model", "shortcut");
             self.dirty = true;
             return Ok(());
         }
@@ -675,11 +667,6 @@ impl SessionUi {
                         kind: StatusKind::Warning,
                     });
                     self.last_status_index = None;
-                    if let Some(telemetry) = self.telemetry.clone() {
-                        tokio::spawn(async move {
-                            telemetry.external_editor_used("no_editor").await;
-                        });
-                    }
                 }
                 Some(command) => {
                     self.external_editor_request = Some(command);
@@ -840,7 +827,6 @@ impl SessionUi {
                         if view.model_picker.is_none() {
                             self.picker_restored_draft = false;
                         }
-                        self.track_menu_opened("model", "tab");
                         self.dirty = true;
                         return Ok(());
                     }
@@ -851,7 +837,6 @@ impl SessionUi {
                         if view.mcp_view.is_none() {
                             self.picker_restored_draft = false;
                         }
-                        self.track_menu_opened("mcp", "tab");
                         self.dirty = true;
                         return Ok(());
                     }

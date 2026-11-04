@@ -583,7 +583,6 @@ async fn direct_upgrade_routes_attach_and_streams_events() {
             client_id: None,
             capabilities: None,
             resume_cursor: None,
-            telemetry_disabled: None,
             recovery_config: None,
             env: None,
             launch_env: None,

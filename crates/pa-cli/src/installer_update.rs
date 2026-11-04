@@ -95,37 +95,6 @@ pub fn run(options: &UpdateOptions) -> i32 {
     };
     if let Some(kind) = homebrew_kind {
         println!("{}", homebrew::upgrade_instruction(kind));
-        // The refusal must not depend on telemetry. A one-shot runtime is
-        // only needed when recording is enabled; failure to record never
-        // changes the instruction or the no-install exit code.
-        if let Ok(cwd) = std::env::current_dir() {
-            let agent_dir = crate::config::get_agent_dir();
-            let settings = pa_core::settings::SettingsManager::create(&cwd, &agent_dir);
-            let telemetry_runtime = (!crate::mode::telemetry_disabled(&settings))
-                .then(|| {
-                    tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                })
-                .and_then(Result::ok);
-            if let Some(runtime) = telemetry_runtime {
-                runtime.block_on(async {
-                    let client =
-                        pa_core::session_engine::telemetry::build_client(&settings, &agent_dir);
-                    pa_telemetry::UpdateHomebrewRefusal {
-                        kind: kind.as_str(),
-                    }
-                    .track(&client);
-                    let _ = tokio::time::timeout(
-                        std::time::Duration::from_millis(
-                            pa_tui::interactive::TELEMETRY_EXIT_TIMEOUT_MS,
-                        ),
-                        client.shutdown(),
-                    )
-                    .await;
-                });
-            }
-        }
         return SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
     }
     let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()

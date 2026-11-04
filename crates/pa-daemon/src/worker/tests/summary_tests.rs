@@ -296,7 +296,6 @@ async fn a_resumed_sessions_summary_counts_its_persisted_tool_calls() {
         active_session_id: "tool-count".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": [] })),
     };
     let worker = Worker::new(config, None);
@@ -345,7 +344,6 @@ async fn summary_carries_the_live_note_until_the_run_boundaries_clear_it() {
         active_session_id: "note-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             "engine": "faux",
             "responses": ["first reply", "second reply"],

@@ -19,7 +19,6 @@ async fn aborted_turn_row_broadcasts_and_persists_through_the_worker_gate() {
         active_session_id: "aborted-row-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             "engine": "faux",
             "responses": [
@@ -195,7 +194,6 @@ async fn kill_cancels_the_sessions_scheduled_jobs() {
         active_session_id: "kill-jobs-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "engine": "faux", "responses": [] })),
     };
     let worker = std::sync::Arc::new(Worker::new(config, None));
@@ -269,7 +267,6 @@ async fn kill_cancels_a_mid_provider_wait_turn_and_surfaces_the_aborted_row() {
         active_session_id: "kill-path-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             "engine": "faux",
             "responses": [
@@ -415,7 +412,6 @@ async fn compact_interrupt_swallows_the_aborted_row() {
         active_session_id: "compact-abort-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             "engine": "faux",
             "responses": [{ "text": "held reply", "delayMs": 60000 }],

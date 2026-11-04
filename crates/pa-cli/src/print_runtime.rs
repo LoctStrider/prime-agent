@@ -94,7 +94,6 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     // The disclosure prints on the ACP client's stderr before any
     // transport starts (TS pushes the daemon-created session's diagnostics
     // to the client; the Rust stderr surface prints it here).
-    crate::telemetry_notice::print_if_due(&options.config);
     // Flag > env > default: the same `PRIME_AGENT_DAEMON_SOCKET` contract
     // as every other mode (the `prime-agent` launcher written by
     // install-rust.sh pins that env, so the ACP path must honor it or it
@@ -217,7 +216,6 @@ fn daemon_acp_create(
         no_session: options.session.no_session.then_some(true),
         name: None,
         config: Some(create_config),
-        telemetry_disabled: crate::mode::create_telemetry_disabled(config),
         runtime_metadata: None,
         lifecycle: Some(lifecycle),
         env: None,
@@ -408,7 +406,6 @@ async fn print_mode_main(
 ) -> Result<i32, String> {
     // `print` or `json`: the telemetry execution mode is the app mode (TS
     // main.ts `executionMode: appMode`).
-    crate::telemetry_notice::print_if_due(&options.config);
     let (session_manager, opened_lease) = select_session_manager_with_lease(options)?;
     *lease = opened_lease;
     let session_manager = session_manager.unwrap_or_else(|| {
@@ -617,7 +614,6 @@ async fn build_headless_engine_parts(
     // interactive `deferTelemetryNoticeForOnboarding` holds the notice
     // back behind onboarding; `--list-models` never reaches this
     // assembly, matching the TS exit before its diagnostics report).
-    crate::telemetry_notice::print_if_due(&options.config);
     let (session_manager, opened_lease) = select_session_manager_with_lease(options)?;
     *lease = opened_lease;
     build_engine(
@@ -725,27 +721,6 @@ pub(crate) async fn build_headless_engine_with(
         )
     };
 
-    // Telemetry: the CLI's env/settings opt-out decides; depth 0 only, enforced by the engine.
-    // A spawned child never reports (the engine's depth gate holds anyway).
-    let telemetry = (!config.telemetry_disabled
-        && matches!(
-            embedding,
-            HeadlessEmbedding::Root { .. } | HeadlessEmbedding::Rpc
-        ))
-    .then(|| {
-        let settings = pa_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
-        pa_core::session_engine::telemetry::TelemetryWiring {
-            client: pa_core::session_engine::telemetry::build_client(&settings, &config.agent_dir),
-            execution_mode: Some(execution_mode.to_string()),
-            now: None,
-            telemetry_enabled: Some(
-                pa_core::session_engine::telemetry::telemetry_enabled_switch(
-                    &config.cwd,
-                    &config.agent_dir,
-                ),
-            ),
-        }
-    });
     let queue_settings = pa_core::settings::SettingsManager::create(&config.cwd, &config.agent_dir);
     let queue_mode = |mode: pa_core::settings::QueueModeSetting| match mode {
         pa_core::settings::QueueModeSetting::All => pa_agent::agent::QueueMode::All,
@@ -815,7 +790,6 @@ pub(crate) async fn build_headless_engine_with(
             on_late_sent_agent_message,
             cron_store: None,
             semantic_edges,
-            telemetry,
             steering_mode,
             follow_up_mode,
             cwd: config.cwd.clone(),

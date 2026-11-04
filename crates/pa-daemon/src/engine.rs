@@ -201,22 +201,6 @@ pub trait SessionEngine: Send + Sync {
     /// request always reaches the provider before a child's first turn.
     fn on_turn_done(&self) {}
 
-    /// Finalize session telemetry at session close: emit `agent session
-    /// ended` and flush once. Best-effort: never fail or block shutdown.
-    fn end_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
-    }
-
-    /// The daemon `kill` path: emit `session archived` then finalize, after
-    /// the turn settles. Best-effort like `end_telemetry`.
-    fn archive_session_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(std::future::ready(()))
-    }
-
     /// The `(provider, model id)` pair the session will run on; fresh
     /// daemon sessions record it in their creation prefix (`model_change`).
     fn creation_model(&self) -> Option<(String, String)> {

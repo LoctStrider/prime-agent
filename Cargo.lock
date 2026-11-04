@@ -1500,7 +1500,6 @@ dependencies = [
  "pa-ai",
  "pa-core",
  "pa-daemon",
- "pa-telemetry",
  "pa-tui",
  "pa-types",
  "rsa",
@@ -1533,7 +1532,6 @@ dependencies = [
  "pa-agent",
  "pa-ai",
  "pa-models",
- "pa-telemetry",
  "pa-types",
  "proptest",
  "reqwest",
@@ -1568,7 +1566,6 @@ dependencies = [
  "pa-ai",
  "pa-core",
  "pa-models",
- "pa-telemetry",
  "pa-types",
  "proptest",
  "serde",
@@ -1617,21 +1614,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "vt100",
-]
-
-[[package]]
-name = "pa-telemetry"
-version = "0.10.2"
-dependencies = [
- "anyhow",
- "reqwest",
- "rustix 1.1.4",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]

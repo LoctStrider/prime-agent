@@ -7,7 +7,7 @@ use super::{
     HeadlessSettle, Instant, InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect,
     ReconnectLoop, RecoveryKind, Renderer, Result, SelectionOrigin, SessionPanel, SessionReconnect,
     SessionSelection, SessionUi, TerminalHandoff, UiInput, UiMode, VecDeque,
-    ACTIVITY_POLL_INTERVAL, SESSION_RECONNECT_ATTEMPT_TIMEOUT_S, TELEMETRY_EXIT_TIMEOUT_MS,
+    ACTIVITY_POLL_INTERVAL, SESSION_RECONNECT_ATTEMPT_TIMEOUT_S,
 };
 use crate::suspend::SuspendTerminal;
 use anyhow::Context;
@@ -726,7 +726,6 @@ async fn run_interactive_surface(
     // agent-session-services): rendered as an info row here — the alt
     // screen hides any pre-TUI stderr print, so the row is the only
     // shape the user actually sees.
-    session.maybe_show_telemetry_notice(&mut view);
     // TS `restorePromptStashOnOpen`: a draft stashed on the way out (a
     // previous chat view of this session left via the agents view or a
     // switch) returns to the editor when its chat reopens.
@@ -866,9 +865,6 @@ async fn run_interactive_surface(
         }
         if enhanced_keys_pending {
             if let Some((kitty, modify_other_keys)) = crate::enhanced_keys::settle_state() {
-                if let Some(telemetry) = &session.telemetry {
-                    telemetry.enhanced_keys(kitty, modify_other_keys).await;
-                }
                 enhanced_keys_pending = false;
             }
         }
@@ -877,12 +873,6 @@ async fn run_interactive_surface(
         // The flush shutdown can wait out a slow endpoint, so the event is spawned instead of
         // awaited.
         if hyperlinks_pending {
-            if let Some(telemetry) = session.telemetry.clone() {
-                let enabled = crate::hyperlinks::hyperlinks_enabled();
-                tokio::spawn(async move {
-                    telemetry.hyperlinks_active(enabled).await;
-                });
-            }
             hyperlinks_pending = false;
         }
 
@@ -1057,9 +1047,8 @@ async fn run_interactive_surface(
                                     view: &mut view,
                                 },
                             ) {
-                                Ok(()) => session.track_suspend_used("resumed"),
+                                Ok(()) => {}
                                 Err(error) => {
-                                    session.track_suspend_used("failed");
                                     session.error_row(&format!("{error:#}"), &mut view);
                                     // Try to take the terminal back so the run stays usable; if
                                     // that also fails, the draw below surfaces the broken frame.
@@ -1230,11 +1219,9 @@ async fn run_interactive_surface(
                     && session.exit_requested
                     && (session.open_agents_view || session.pending_selection.is_some())
                 {
-                    session.exit_reason = "session_request";
                     break 'run;
                 }
                 if session.exit_requested && renderer.is_terminal() {
-                    session.exit_reason = "session_request";
                     break;
                 }
                 // Headless input keeps the one-step-per-iteration order the plans were written
@@ -1660,21 +1647,18 @@ async fn run_interactive_surface(
                                 "The Prime Agent daemon shut down while this window was attached. The session transcript remains saved; restart Prime Agent and reopen it from Agents View.",
                                 &mut view,
                             );
-                            session.exit_reason = "daemon_closed";
                         }
                         RecoveryKind::Lost => {
                             session.note(
                                 "could not reconnect to the daemon within 10 minutes — run `prime-agent attach` to resume.",
                                 &mut view,
                             );
-                            session.exit_reason = "daemon_reconnect_failed";
                         }
                         RecoveryKind::Update => {
                             session.note(
                                 "could not reconnect to the daemon within 10 minutes — the update finished but this window is detached. Run `prime-agent attach` to resume.",
                                 &mut view,
                             );
-                            session.exit_reason = "update_reconnect_failed";
                         }
                     }
                     reconnect = None;
@@ -1731,21 +1715,18 @@ async fn run_interactive_surface(
                                 "The Prime Agent daemon shut down while this window was attached. The session transcript remains saved; restart Prime Agent and reopen it from Agents View.",
                                 &mut view,
                             );
-                            session.exit_reason = "daemon_closed";
                         }
                         RecoveryKind::Lost => {
                             session.note(
                                 "could not reconnect to the daemon within 10 minutes — run `prime-agent attach` to resume.",
                                 &mut view,
                             );
-                            session.exit_reason = "daemon_reconnect_failed";
                         }
                         RecoveryKind::Update => {
                             session.note(
                                 "could not reconnect to the daemon within 10 minutes — the update finished but this window is detached. Run `prime-agent attach` to resume.",
                                 &mut view,
                             );
-                            session.exit_reason = "update_reconnect_failed";
                         }
                     }
                     reconnect = None;
@@ -1809,7 +1790,6 @@ async fn run_interactive_surface(
                                         &format!("reattach after the update failed: {error:#} — run `prime-agent attach` to resume"),
                                         &mut view,
                                     );
-                                    session.exit_reason = "update_reattach_failed";
                                     session.dirty = true;
                                     running = false;
                                 }
@@ -2051,7 +2031,6 @@ async fn run_interactive_surface(
             render_deadline = None;
         }
         if session.exit_requested {
-            session.exit_reason = "session_request";
             running = false;
         }
     }
@@ -2108,25 +2087,6 @@ async fn run_interactive_surface(
         session.detach_for_handoff();
     } else {
         session.detach_for_exit().await;
-    }
-    // `tui exit` (schema v1): how the run ended. Bounded the same way as the detach — telemetry
-    // must never hold the exit path open. The handoff still emits the event but does not wait for
-    // the flush.
-    let exit_reason = session.exit_reason();
-    let turn_active_at_exit = session.turn_active;
-    if let Some(telemetry) = session.telemetry.clone() {
-        let exit_event = async move {
-            let () = telemetry
-                .client_exit(exit_reason, turn_active_at_exit)
-                .await;
-        };
-        if session.open_agents_view {
-            tokio::spawn(exit_event);
-        } else {
-            let _ =
-                tokio::time::timeout(Duration::from_millis(TELEMETRY_EXIT_TIMEOUT_MS), exit_event)
-                    .await;
-        }
     }
     // Agents-back and `/resume` hand the pane to the agents view; the alternate screen stays in
     // place for it (TS `stop({ preserveAltScreen: true })`).

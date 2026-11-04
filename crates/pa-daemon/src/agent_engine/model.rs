@@ -244,13 +244,6 @@ impl AgentSessionEngine {
         pa_core::models::resolve_cli_model(Some(&provider), &model_id, registry.get_all()).model
     }
 
-    /// Emit the daemon model-allowlist refusal's adoption event (schema v1
-    /// `model refused`) from any of this worker's enforcement seams.
-    pub(crate) fn note_model_refused(&self, surface: &str, selector: &str) {
-        self.model_refusal_telemetry
-            .note_refused(surface, selector, &self.cwd());
-    }
-
     /// Resolve the model through the composed registry, then enforce the
     /// settings `allowedModels` allowlist: a resolution outside the allowlist
     /// fails loudly here (never a silent fallback), emitting `model refused`.
@@ -259,10 +252,6 @@ impl AgentSessionEngine {
         let selector = format!("{}/{}", model.provider, model.id);
         let allowlist = crate::model_allowlist::load(&self.cwd(), &self.config.agent_dir);
         if let Err(refusal) = crate::model_allowlist::assert_allowed(&allowlist, &selector) {
-            if let Some(refusal) = refusal.downcast_ref::<pa_core::models::ModelAllowlistRefusal>()
-            {
-                self.note_model_refused("session_start", &refusal.selector);
-            }
             return Err(refusal);
         }
         Ok(model)

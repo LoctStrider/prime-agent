@@ -244,16 +244,6 @@ pub struct FactorySettings {
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TelemetrySettings {
-    pub enabled: Option<bool>,
-    pub notice_shown: Option<bool>,
-    /// Local JSONL mirror at `<agentDir>/telemetry.jsonl` (default on:
-    /// user-observable transparency).
-    pub local_mirror: Option<bool>,
-}
-
 /// The default time limit for user `python_repl` cells: 60 seconds.
 pub const DEFAULT_PYTHON_CELL_TIMEOUT_MS: u64 = 60_000;
 
@@ -284,7 +274,6 @@ pub struct Settings {
     pub harness_refinements: Option<bool>,
     pub agent_traces: Option<AgentTracesSettings>,
     pub factory: Option<FactorySettings>,
-    pub telemetry: Option<TelemetrySettings>,
     pub branch_summary: Option<BranchSummarySettings>,
     pub retry: Option<RetrySettings>,
     pub provider_backup_model: Option<String>,

@@ -13,7 +13,6 @@ async fn created_dispatch_worker() -> std::sync::Arc<Worker> {
         active_session_id: "suspension-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = std::sync::Arc::new(Worker::new(config, None));
@@ -123,7 +122,6 @@ async fn the_worker_store_reports_each_billed_row_once() {
             active_session_id: "billed-session".to_string(),
             agent_dir: dir.path().join("agent"),
             recovery_journal_path: dir.path().join("recovery.jsonl"),
-            telemetry_disabled: Some(true),
             script: Some(json!({ "responses": [] })),
         },
         None,
@@ -206,7 +204,6 @@ async fn background_refinement_event_is_fenced_to_its_review_session() {
             active_session_id: "refinement-session".to_string(),
             agent_dir: dir.join("agent"),
             recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
             script: Some(json!({ "responses": [] })),
         },
         None,
@@ -254,7 +251,6 @@ async fn a_bill_made_before_a_session_replace_never_lands_in_the_replacement() {
             active_session_id: "bill-session".to_string(),
             agent_dir: dir.join("agent"),
             recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
             script: Some(json!({ "responses": [] })),
         },
         None,

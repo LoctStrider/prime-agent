@@ -19,23 +19,6 @@ impl pa_tui::update_command::UpdateCommands for ClientUpdate {
                 .as_deref()
                 .and_then(homebrew::managed_kind)
             {
-                if let Ok(cwd) = std::env::current_dir() {
-                    let agent_dir = crate::config::get_agent_dir();
-                    let settings = pa_core::settings::SettingsManager::create(&cwd, &agent_dir);
-                    if !crate::mode::telemetry_disabled(&settings) {
-                        let client =
-                            pa_core::session_engine::telemetry::build_client(&settings, &agent_dir);
-                        pa_telemetry::UpdateHomebrewRefusal {
-                            kind: kind.as_str(),
-                        }
-                        .track(&client);
-                        // The TUI already owns a runtime; draining in the
-                        // background cannot delay the refusal row.
-                        tokio::spawn(async move {
-                            let _ = client.shutdown().await;
-                        });
-                    }
-                }
                 return Err(homebrew::upgrade_instruction(kind));
             }
             let executable = std::env::current_exe().map_err(|error| error.to_string())?;

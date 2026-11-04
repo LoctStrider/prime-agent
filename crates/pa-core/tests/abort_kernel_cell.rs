@@ -169,7 +169,6 @@ async fn abort_during_a_kernel_cell_settles_the_turn_immediately() {
         rlm_depth: None,
         factory_child: false,
         daemonless: true,
-        telemetry: None,
         model_info: None,
         mcp_manager: None,
         prewarm_ipython_kernel: None,

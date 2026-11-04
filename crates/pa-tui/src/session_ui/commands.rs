@@ -88,7 +88,6 @@ impl SessionUi {
         // `agent command used` (TS `captureAgentCommandUsed`): one report
         // per submitted builtin, client and session commands alike, by its
         // canonical name, before the command runs.
-        self.track_command_used(resolved.name);
         match command.execution {
             SlashCommandExecution::Session => self.send_prompt(text, behavior, view),
             SlashCommandExecution::Client => {
@@ -110,7 +109,6 @@ impl SessionUi {
         view.editor.clear_history();
         view.editor.set_text("");
         self.note(&format!("started session {id}"), view);
-        self.track_feature_outcome("new", "completed", None);
         Ok(())
     }
 
@@ -194,8 +192,6 @@ impl SessionUi {
                     return Ok(());
                 }
                 self.open_model_picker(view, "").await?;
-                self.track_menu_opened("model", "command");
-                self.track_feature_outcome("model", "initiated", None);
             }
             "effort" => {
                 let Some(state) = self.connection_state(view).await else {
@@ -225,7 +221,6 @@ impl SessionUi {
                 match effort_picker::effort_command(&levels, current.as_deref(), &resolved.args) {
                     effort_picker::EffortCommandOutcome::Open(picker) => {
                         view.choice_picker = Some(picker);
-                        self.track_feature_outcome("effort", "initiated", None);
                     }
                     effort_picker::EffortCommandOutcome::Unsupported => {
                         self.note("Current model does not support thinking", view);
@@ -248,7 +243,6 @@ impl SessionUi {
             }
             "tree" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("tree", "initiated", None);
                     self.open_tree_selector(view, None).await?;
                 } else {
                     self.note("Usage: /tree", view);
@@ -256,7 +250,6 @@ impl SessionUi {
             }
             "fork" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("fork", "initiated", None);
                     self.open_fork_selector(view).await?;
                 } else {
                     self.note("Usage: /fork", view);
@@ -264,7 +257,6 @@ impl SessionUi {
             }
             "clone" => {
                 if resolved.args.is_empty() {
-                    self.track_feature_outcome("clone", "initiated", None);
                     self.handle_clone_command(view).await?;
                 } else {
                     self.note("Usage: /clone", view);
@@ -285,7 +277,6 @@ impl SessionUi {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Login, view)
                         .await?;
-                    self.track_feature_outcome("login", "initiated", None);
                 } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
@@ -296,7 +287,6 @@ impl SessionUi {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Logout, view)
                         .await?;
-                    self.track_feature_outcome("logout", "initiated", None);
                 } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
@@ -487,28 +477,6 @@ impl SessionUi {
                     _ => self.error_row("Usage: /factory [on|off|status]", view),
                 }
             }
-            // `/telemetry [status|on|off]`: the report (on/off and why, the
-            // endpoint, the installation id), or the persisted switch the
-            // running telemetry clients re-read at their next send.
-            "telemetry" => {
-                let Some(settings) = &self.client_settings else {
-                    self.note("/telemetry is not available in this client yet", view);
-                    return Ok(());
-                };
-                let report = match resolved.args.trim().to_lowercase().as_str() {
-                    "" | "status" => Ok(settings.telemetry_status()),
-                    "on" => settings.set_telemetry_enabled(true),
-                    "off" => settings.set_telemetry_enabled(false),
-                    _ => {
-                        self.error_row("Usage: /telemetry [status|on|off]", view);
-                        return Ok(());
-                    }
-                };
-                match report {
-                    Ok(report) => self.note(&report, view),
-                    Err(error) => self.error_row(&format!("{error:#}"), view),
-                }
-            }
             // `/update` (the TS->Rust migration path): the confirm, then
             // the download+install runs OUT-OF-BAND (a background task —
             // the TUI stays mounted, the daemon keeps running, and the
@@ -588,7 +556,6 @@ impl SessionUi {
                     Some("Hotkeys".to_string()),
                     InfoContent::Markdown(crate::hotkeys::hotkeys_guide(view.editor.keybindings())),
                 );
-                self.track_menu_opened("hotkeys", "command");
             }
 
             "session" => {
@@ -618,7 +585,6 @@ impl SessionUi {
                                 name.as_deref(),
                             )),
                         );
-                        self.track_menu_opened("session", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -665,7 +631,6 @@ impl SessionUi {
                                 &factory_runs,
                             )),
                         );
-                        self.track_menu_opened("context", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -700,7 +665,6 @@ impl SessionUi {
                         rows.push(Vec::new());
                         rows.extend(info_commands::system_prompt_body_rows(prompt));
                         self.open_info_panel(view, None, InfoContent::Rows(rows));
-                        self.track_menu_opened("system-prompt", "command");
                     }
                     Err(error) => {
                         self.error_row(&format!("{error:#}"), view);
@@ -727,7 +691,6 @@ impl SessionUi {
                     None,
                     InfoContent::Rows(info_commands::logs_rows(&agent_dir.join("logs"))),
                 );
-                self.track_menu_opened("logs", "command");
             }
             // The shipped CHANGELOG.md entries, newest first; the TS accent `What's
             // New` title is the panel's title.
@@ -744,7 +707,6 @@ impl SessionUi {
                         &Self::changelog_path(),
                     )),
                 );
-                self.track_menu_opened("changelog", "command");
             }
             "settings" => {
                 if !resolved.args.is_empty() {
@@ -880,13 +842,6 @@ impl SessionUi {
 
     /// Report a menu surface opening (`tui menu opened`), fire-and-forget;
     /// `menu` names the surface, `source` how it opened.
-    pub(super) fn track_menu_opened(&self, menu: &'static str, source: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.menu_opened(menu, source).await;
-            });
-        }
-    }
 
     /// Fetch the session's slash-command catalog in the background: the response carries the
     /// `skill:` commands; a fetch races a rebind silently — the epoch drops the stale response.

@@ -36,12 +36,7 @@ impl SessionUi {
                 // `tui agents new scoped`, fire-and-forget (the
                 // `subagents_view_opened` pattern): the open never waits on
                 // the telemetry flush.
-                if let Some(telemetry) = options.telemetry.clone() {
-                    let depth = *rlm_depth;
-                    tokio::spawn(async move {
-                        telemetry.scoped_agent_created(depth).await;
-                    });
-                }
+
                 id
             }
             SessionSelection::Attach(id) => id.clone(),
@@ -74,7 +69,6 @@ impl SessionUi {
             models_fetched_at: None,
             catalog_updates,
             heartbeat_updates: activity_updates.heartbeats,
-            telemetry_disabled: options.telemetry_disabled,
             code_block_indent: options.code_block_indent.clone(),
             tree_filter_mode: crate::tree_list::filter_mode_from_str(&options.tree_filter_mode),
             branch_summary_skip_prompt: options.branch_summary_skip_prompt,
@@ -175,9 +169,6 @@ impl SessionUi {
             compaction_settled: false,
             window: super::window::TranscriptWindow::default(),
             page_notes,
-            telemetry: options.telemetry.clone(),
-            scroll_adoption_emitted: false,
-            exit_reason: "daemon_closed",
             reconnect: None,
             daemon_closing_notice: None,
             transport_lost: None,
@@ -200,15 +191,12 @@ impl SessionUi {
             external_editor_request: None,
             pending_mcp_auth: None,
             picker_restored_draft: false,
-            suspend_adoption_emitted: false,
             selection_auto_scroll: None,
-            selection_adoption_emitted: false,
             copies: Vec::new(),
             pressed_hyperlink: None,
             left_mouse_dragged: false,
             opened_urls: Vec::new(),
             pressed_click: None,
-            click_adoption_emitted: false,
         };
         session
             .attach_session(&active_session_id, DockFold::FirstFrame)
@@ -351,7 +339,6 @@ impl SessionUi {
             // an image-heavy session's attach stops transferring megabytes.
             capabilities: Some(attach_capabilities()),
             resume_cursor: None,
-            telemetry_disabled: self.telemetry_disabled.filter(|disabled| *disabled),
             recovery_config: None,
             env: client_env.clone(),
             launch_env: None,

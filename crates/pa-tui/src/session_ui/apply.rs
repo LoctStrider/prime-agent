@@ -106,47 +106,6 @@ impl SessionUi {
         self.note(text, view);
     }
 
-    /// Report the first scroll action of the run (`tui_scroll_count`),
-    /// fire-and-forget so the keypress never waits on the telemetry flush.
-    pub(super) fn track_scroll(&mut self, action: &'static str, resumed_following: bool) {
-        if self.scroll_adoption_emitted {
-            return;
-        }
-        self.scroll_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.scroll_used(action, resumed_following).await;
-            });
-        }
-    }
-
-    /// Report the run's first selection copy (`tui selection used`),
-    /// fire-and-forget. `lines` is the copied text's line count.
-    pub(super) fn track_selection(&mut self, lines: usize) {
-        if self.selection_adoption_emitted {
-            return;
-        }
-        self.selection_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.selection_used(lines).await;
-            });
-        }
-    }
-
-    /// The run's first click-driven interaction (`tui click used`).
-    pub(crate) fn track_click(&mut self, surface: &'static str) {
-        if self.click_adoption_emitted {
-            return;
-        }
-        self.click_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.click_used(surface).await;
-            });
-        }
-    }
-
     /// Take a pending `app.suspend` request: the interactive loop owns the
     /// renderer that hands the terminal over.
     pub(crate) fn take_suspend_request(&mut self) -> bool {
@@ -157,48 +116,6 @@ impl SessionUi {
     /// performs the editor child's terminal handoff.
     pub(crate) fn take_external_editor_request(&mut self) -> Option<String> {
         self.external_editor_request.take()
-    }
-
-    /// Report the run's first suspend cycle (`tui suspend used`),
-    /// fire-and-forget. `outcome` is `resumed` or `failed`.
-    pub(crate) fn track_suspend_used(&mut self, outcome: &'static str) {
-        if self.suspend_adoption_emitted {
-            return;
-        }
-        self.suspend_adoption_emitted = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.suspend_used(outcome).await;
-            });
-        }
-    }
-
-    /// Report a builtin command submission (`agent command used`),
-    /// fire-and-forget like the scroll event: the command's handling never
-    /// waits on the telemetry flush.
-    pub(super) fn track_command_used(&mut self, command: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.command_used(command).await;
-            });
-        }
-    }
-
-    /// Report a feature attempt's observed outcome (`agent feature
-    /// outcome`), fire-and-forget.
-    pub(super) fn track_feature_outcome(
-        &mut self,
-        feature: &'static str,
-        outcome: &'static str,
-        duration_ms: Option<u64>,
-    ) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry
-                    .feature_outcome(feature, outcome, duration_ms)
-                    .await;
-            });
-        }
     }
 
     pub(crate) fn apply_client_event(&mut self, event: DaemonClientEvent, view: &mut AgentView) {
@@ -412,7 +329,6 @@ impl SessionUi {
                     // pending-state reset or arrive without its own streamed frame).
                     self.pending_tools.insert(tool_call_id.clone());
                     Self::set_working_activity("Executing", false, view);
-                    self.track_live_tool_timer();
                 }
             }
             TurnUpdate::ToolExecutionUpdate {
@@ -897,7 +813,6 @@ impl SessionUi {
                 if !partial {
                     card.ended_at = Some(std::time::Instant::now());
                     self.pending_tools.remove(tool_call_id);
-                    self.track_ipython_bash_rendered(card);
                 }
                 view.mark_entry_stale(index);
                 return true;
@@ -907,33 +822,9 @@ impl SessionUi {
     }
 
     /// Count live timer starts with the session's other interaction counters.
-    fn track_live_tool_timer(&self) {
-        let Some(telemetry) = self.telemetry.clone() else {
-            return;
-        };
-        tokio::spawn(async move {
-            telemetry.live_tool_timer_started().await;
-        });
-    }
 
     /// `tui ipython bash rendered`: the settled ipython card that renders
     /// as bash reports its bash share, primitives only.
-    fn track_ipython_bash_rendered(&self, card: &crate::tool_card::ToolCallCard) {
-        if !pa_types::ai::is_python_tool_name(&card.name) {
-            return;
-        }
-        let Some(stats) = crate::tool_card::ipython::bash_dominated_stats(card) else {
-            return;
-        };
-        let Some(telemetry) = self.telemetry.clone() else {
-            return;
-        };
-        tokio::spawn(async move {
-            telemetry
-                .ipython_bash_rendered(stats.bash_lines, stats.cell_lines, stats.count)
-                .await;
-        });
-    }
 
     /// Update the loader activity label (agent-activity tracker subset).
     fn set_working_activity(activity: &'static str, download: bool, view: &mut AgentView) {

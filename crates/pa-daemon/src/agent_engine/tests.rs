@@ -35,7 +35,6 @@ fn bare_engine(dir: &std::path::Path) -> AgentSessionEngine {
         session_file: None,
         faux_script: None,
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })
@@ -105,7 +104,6 @@ pub(crate) fn faux_engine_with_settings(
         session_file: None,
         faux_script: Some(script.to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })
@@ -332,7 +330,6 @@ fn run_prompts(
         session_file: None,
         faux_script: Some(script.to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })

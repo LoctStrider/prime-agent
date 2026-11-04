@@ -127,12 +127,6 @@ impl AgentSessionEngine {
                 }
                 {
                     let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
                 }
                 // The run stops on purpose; the worker services the armed review off
                 // the settle (never before the `Done`).

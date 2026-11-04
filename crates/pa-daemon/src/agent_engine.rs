@@ -309,10 +309,6 @@ pub struct AgentSessionEngine {
     /// Turn-boundary runs register their controller here;
     /// [`SessionEngine::abort_auto_compaction`] aborts whatever holds it.
     pub(crate) auto_compaction_abort: std::sync::Mutex<Option<std::sync::Arc<AbortController>>>,
-    /// The model-allowlist refusal telemetry, shared with the RLM children
-    /// host (one lazily-built client per worker).
-    pub(crate) model_refusal_telemetry:
-        std::sync::Arc<crate::model_allowlist::ModelRefusalTelemetry>,
     /// This session's semantic-edge identity (TS
     /// `semanticEdgeLedgerPath`/`semanticParentSessionId`/
     /// `semanticSpawnedByRequestId`): stamped by `configure_rlm_identity`

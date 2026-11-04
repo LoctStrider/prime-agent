@@ -262,7 +262,6 @@ impl Supervisor {
             config: Some(json!({ "cwd": info.cwd, "rlmDepth": info.rlm_depth })),
             // Telemetry opt-out only ever rides an explicit user create;
             // the wake create inherits the daemon default (absent).
-            telemetry_disabled: None,
             runtime_metadata: None,
             lifecycle: None,
             env: None,
@@ -383,7 +382,6 @@ impl Supervisor {
             // fence reads; without them the revived child's fence sees a
             // root and never re-passivates.
             config: Some(json!({ "cwd": cwd, "rlmDepth": depth })),
-            telemetry_disabled: None,
             runtime_metadata: Some(json!({ "kind": "subagent", "rlmChildId": child_id })),
             lifecycle: None,
             env: None,
@@ -555,7 +553,6 @@ mod tests {
                 root_session_id: None,
                 session_file: Some("/sessions/some-session.jsonl".to_string()),
                 session_dir: None,
-                telemetry_disabled: None,
                 created_at: "t".to_string(),
                 updated_at: "t".to_string(),
                 lifecycle: DaemonWorkerLifecycle::Ready,

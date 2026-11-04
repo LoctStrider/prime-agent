@@ -447,7 +447,6 @@ mod tests {
         // (`cancelled`, never a message id that sanitize would rewrite).
         let aborted = classify("Request was aborted");
         assert_eq!(aborted.subtype, "cancelled");
-        assert!(pa_telemetry::ERROR_SUBTYPES.contains(&aborted.subtype));
         let near_miss = classify("Provider rate limit exceeded for model glm-4.6");
         assert!(near_miss.safe_message.is_none());
         assert_eq!(near_miss.classification_source, "unknown");
@@ -472,7 +471,6 @@ mod tests {
             classification.diagnostic,
             "The provider ended the response stream without a stop signal."
         );
-        assert!(pa_telemetry::ERROR_SUBTYPES.contains(&classification.subtype));
         // The empty-stream variant classifies identically.
         let empty = classify(
             "Provider dropped the response stream (stream_drop): the stream ended before any response content or stop signal"

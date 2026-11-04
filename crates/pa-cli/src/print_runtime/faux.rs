@@ -142,7 +142,6 @@ pub(crate) async fn build_faux_engine_with(
             semantic_edges: None,
             steering_mode: None,
             follow_up_mode: None,
-            telemetry: None,
             cwd: config.cwd.clone(),
             agent_dir: config.agent_dir.clone(),
             mcp_manager: None,

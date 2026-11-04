@@ -56,16 +56,6 @@ impl ClientSettings for CliClientSettings {
     fn set_harness_refinements(&self, enabled: bool) -> Result<()> {
         let mut manager = self.manager();
         manager.set_harness_refinements(enabled)?;
-        // Adoption bookkeeping stays off the UI input/paint path.
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            let agent_dir = self.agent_dir.clone();
-            runtime.spawn_blocking(move || {
-                let client = pa_core::session_engine::telemetry::build_client(&manager, &agent_dir);
-                let mut properties = pa_telemetry::Properties::new();
-                properties.set("enabled", serde_json::json!(enabled));
-                client.track("harness refinements changed", properties);
-            });
-        }
         Ok(())
     }
 
@@ -75,21 +65,6 @@ impl ClientSettings for CliClientSettings {
 
     fn set_compaction_threshold_percent(&self, percent: f64) -> Result<()> {
         self.manager().set_compaction_threshold_percent(percent)?;
-        let settings = self.clone();
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                let manager = settings.manager();
-                if crate::mode::telemetry_disabled(&manager) {
-                    return;
-                }
-                let client =
-                    pa_core::session_engine::telemetry::build_client(&manager, &settings.agent_dir);
-                let mut properties = pa_telemetry::base_properties("interactive");
-                properties.set("threshold_percent", serde_json::json!(percent));
-                client.track("autocompact threshold changed", properties);
-                let _ = client.shutdown().await;
-            });
-        }
         Ok(())
     }
 
@@ -274,33 +249,6 @@ impl ClientSettings for CliClientSettings {
         pa_core::update::version::resolve_update_channel(version, preferred)
             .wire_name()
             .to_string()
-    }
-
-    fn telemetry_status(&self) -> String {
-        pa_core::session_engine::telemetry::telemetry_status_text(&self.manager(), &self.agent_dir)
-    }
-
-    fn set_telemetry_enabled(&self, enabled: bool) -> Result<String> {
-        pa_core::session_engine::telemetry::set_telemetry_enabled_text(
-            &mut self.manager(),
-            &self.agent_dir,
-            enabled,
-        )
-    }
-
-    fn telemetry_notice_due(&self) -> bool {
-        // TS agent-session-services: telemetry enabled, onboarding
-        // already shown (a first interactive launch belongs to the
-        // onboarding screen; the notice surfaces on the next launch),
-        // and the notice not yet shown.
-        let manager = self.manager();
-        pa_core::session_engine::telemetry::telemetry_switch(&manager).enabled()
-            && manager.get_onboarding_shown()
-            && !manager.get_telemetry_notice_shown()
-    }
-
-    fn set_telemetry_notice_shown(&self) -> Result<()> {
-        self.manager().set_telemetry_notice_shown(true)
     }
 }
 

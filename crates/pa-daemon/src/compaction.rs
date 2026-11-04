@@ -454,7 +454,6 @@ mod tests {
                 agent_dir: dir.path().join("agent"),
                 recovery_journal_path: dir.path().join("recovery.jsonl"),
                 script: Some(json!({ "responses": ["ack"] })),
-                telemetry_disabled: Some(true),
             },
             None,
         );

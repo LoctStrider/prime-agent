@@ -42,43 +42,6 @@ async fn faux_engine_with_settings(
     settings: Value,
     session_manager: Option<SessionManager>,
 ) -> (SessionEngine, tempfile::TempDir, Model) {
-    faux_engine_with_telemetry(script, settings, session_manager, None).await
-}
-
-/// The same faux engine with session telemetry wired to a mock sink
-/// (batch-per-event flush).
-async fn faux_engine_with_mock_telemetry(
-    script: Value,
-    settings: Value,
-) -> (
-    SessionEngine,
-    tempfile::TempDir,
-    Model,
-    std::sync::Arc<pa_telemetry::MockSink>,
-) {
-    let mock = std::sync::Arc::new(pa_telemetry::MockSink::new());
-    let mut config = pa_telemetry::TelemetryClientConfig::new("install-1");
-    config.batch_size = 1;
-    config.flush_interval = std::time::Duration::from_mins(10);
-    config.sinks = vec![mock.clone() as std::sync::Arc<dyn pa_telemetry::TelemetrySink>];
-    let client = pa_telemetry::TelemetryClient::spawn(config).expect("spawn client");
-    let telemetry = pa_core::session_engine::telemetry::TelemetryWiring {
-        client,
-        execution_mode: Some("print".to_string()),
-        now: None,
-        telemetry_enabled: None,
-    };
-    let (engine, dir, model) =
-        faux_engine_with_telemetry(script, settings, None, Some(telemetry)).await;
-    (engine, dir, model, mock)
-}
-
-async fn faux_engine_with_telemetry(
-    script: Value,
-    settings: Value,
-    session_manager: Option<SessionManager>,
-    telemetry: Option<pa_core::session_engine::telemetry::TelemetryWiring>,
-) -> (SessionEngine, tempfile::TempDir, Model) {
     let dir = tempfile::TempDir::new().unwrap();
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -93,79 +56,28 @@ async fn faux_engine_with_telemetry(
     registration.set_repeat_last_response(parsed.repeat_last_response);
     let model = registration.get_model();
     let stream_fn = pa_core::session_engine::provider_adapter::real_stream_fn(None, model.clone());
-    let agent_model: pa_agent::types::Model =
-        json_round_trip(&model).expect("the faux model crosses the loop boundary");
-    let session_manager = session_manager
+    let agent_model: pa_agent::types::Model = json_round_trip(&model).expect("faux model");
+    let manager = session_manager
         .or_else(|| {
             Some(SessionManager::persisted(
                 dir.path(),
                 &dir.path().join("sessions"),
             ))
         })
-        .expect("a session manager");
+        .unwrap();
     let engine = create_session(SessionEngineConfig {
-        on_late_sent_agent_message: None,
-        semantic_edges: None,
-        cron_store: None,
-        steering_mode: None,
-        follow_up_mode: None,
-        image_model_router: None,
-        telemetry,
         cwd: dir.path().to_path_buf(),
         agent_dir,
-        mcp_manager: None,
         model: Some(agent_model),
-        thinking_level: None,
         stream_fn: Some(stream_fn),
-        tools: Vec::new(),
-        custom_system_prompt: None,
-        prompt_guidelines: Vec::new(),
-        generic_mcp_servers: Vec::new(),
-        allow_recursion: None,
-        session_manager: Some(session_manager),
-        extra_host_handlers: None,
-        conversation_log_path: None,
-        additional_skill_paths: Vec::new(),
-        additional_prompt_paths: Vec::new(),
-        extra_builtin_skill_overrides: Vec::new(),
-        rlm_subagent_host: None,
-        rlm_usage_store: None,
-        progress_note_emit: None,
-        rlm_depth: None,
-        factory_child: false,
+        session_manager: Some(manager),
         daemonless: true,
         model_info: Some(model.clone()),
-        prewarm_ipython_kernel: None,
-        on_background_work_settled: None,
-        bash_notice_wake: None,
-        queued_goal_context_purge: None,
-        queued_steering_probe: None,
-        should_stop_after_turn: None,
+        ..Default::default()
     })
     .await
-    .expect("the faux session assembles");
+    .expect("session assembles");
     (engine, dir, model)
-}
-
-/// Finalize the open run, emit the session totals, and flush the mock
-/// sink. Idempotent: a second call is a no-op.
-async fn end_telemetry(engine: &SessionEngine) {
-    engine
-        .telemetry
-        .as_ref()
-        .expect("the faux engine has telemetry installed")
-        .end()
-        .await
-        .expect("telemetry end flushes");
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-}
-
-fn mock_properties(mock: &std::sync::Arc<pa_telemetry::MockSink>, name: &str) -> Vec<Value> {
-    mock.events()
-        .iter()
-        .filter(|event| event.name == name)
-        .map(|event| serde_json::to_value(&event.properties).expect("properties serialize"))
-        .collect()
 }
 
 /// Admit one prompt through the production flow: the pre-turn check,
@@ -755,216 +667,6 @@ async fn requested_compaction_skip_streams_the_warning_row_and_end_event() {
         "Requested compaction skipped: Session is too short to compact — try again once it grows"
     );
     assert_eq!(events[end_at]["errorSeverity"], "warning");
-}
-
-#[tokio::test]
-async fn requested_compaction_counts_into_the_run_telemetry() {
-    let _faux = FAUX_TEST_LOCK.lock().await;
-    let (engine, _dir, model, mock) = faux_engine_with_mock_telemetry(
-        json!({
-            "responses": [
-                {"text": "seed reply"},
-                {"text": "second reply"},
-                {"text": "the summary"},
-            ]
-        }),
-        compactable_settings(),
-    )
-    .await;
-    let mut boundary = TurnBoundary::new(false);
-    admit(
-        &mut boundary,
-        &engine,
-        &model,
-        format!("seed turn {}", "x".repeat(48_000)),
-    )
-    .await
-    .unwrap();
-    engine.turn_boundary.schedule_compaction(None).await;
-    admit_turn_with_scheduled_request(
-        &mut boundary,
-        &engine,
-        &model,
-        format!("second turn {}", "x".repeat(2_000)),
-    )
-    .await
-    .unwrap();
-    assert_eq!(compaction_count(&engine).await, 1, "the compaction ran");
-    end_telemetry(&engine).await;
-    let runs = mock_properties(&mock, "agent run completed");
-    assert_eq!(runs.len(), 2, "one run per admitted prompt");
-    assert_eq!(runs[0]["compaction_count"], json!(0));
-    assert_eq!(
-        runs[1]["compaction_count"],
-        json!(1),
-        "the requested compaction counted into the open run"
-    );
-    let ended = mock_properties(&mock, "agent session ended");
-    assert_eq!(ended.len(), 1);
-    assert_eq!(ended[0]["compaction_count"], json!(1));
-}
-
-#[tokio::test]
-async fn threshold_compaction_counts_into_the_run_telemetry() {
-    let _faux = FAUX_TEST_LOCK.lock().await;
-    let (probe, _dir, probe_model) = faux_engine_with_settings(
-        json!({ "responses": [{"text": "seed reply"}] }),
-        compactable_settings(),
-        None,
-    )
-    .await;
-    let mut probe_boundary = TurnBoundary::new(false);
-    admit(
-        &mut probe_boundary,
-        &probe,
-        &probe_model,
-        "seed turn".to_string(),
-    )
-    .await
-    .unwrap();
-    let baseline = last_assistant(&probe)
-        .await
-        .map(|message| message.usage.total_tokens)
-        .expect("probe turn produced usage");
-    drop(probe);
-
-    // The crossing prompt adds ~12k tokens; the headroom sits halfway.
-    let big_prompt = format!("seed turn {} crossing", "x".repeat(48_000));
-    let big_tokens = (48_000 + "seed turn  crossing".len() as u64).div_ceil(4);
-    let headroom = baseline + big_tokens / 2;
-    let (engine, _dir, model, mock) = faux_engine_with_mock_telemetry(
-        json!({
-            "responses": [
-                {"text": "seed reply"},
-                {"text": "crossing reply"},
-                {"text": "the summary"},
-            ]
-        }),
-        json!({
-            "compaction": {
-                "enabled": true,
-                "reserveTokens": 128_000u64.saturating_sub(FAUX_REQUEST_BUDGET + headroom).max(1),
-                "keepRecentTokens": 10
-            }
-        }),
-    )
-    .await;
-    let mut boundary = TurnBoundary::new(false);
-    admit(&mut boundary, &engine, &model, "seed turn".to_string())
-        .await
-        .unwrap();
-    assert_eq!(
-        compaction_count(&engine).await,
-        0,
-        "no compaction below the headroom"
-    );
-    admit(&mut boundary, &engine, &model, big_prompt)
-        .await
-        .unwrap();
-    assert_eq!(
-        compaction_count(&engine).await,
-        1,
-        "the crossing turn compacted"
-    );
-    end_telemetry(&engine).await;
-    let runs = mock_properties(&mock, "agent run completed");
-    assert_eq!(runs.len(), 2, "one run per admitted prompt");
-    assert_eq!(runs[0]["compaction_count"], json!(0));
-    assert_eq!(
-        runs[1]["compaction_count"],
-        json!(1),
-        "the threshold compaction counted into the open run"
-    );
-    let ended = mock_properties(&mock, "agent session ended");
-    assert_eq!(ended[0]["compaction_count"], json!(1));
-}
-
-#[tokio::test]
-async fn multi_compaction_run_counts_every_arm() {
-    let _faux = FAUX_TEST_LOCK.lock().await;
-    let (probe, _dir, probe_model) = faux_engine_with_settings(
-        json!({ "responses": [{"text": "seed reply"}] }),
-        compactable_settings(),
-        None,
-    )
-    .await;
-    let mut probe_boundary = TurnBoundary::new(false);
-    admit(
-        &mut probe_boundary,
-        &probe,
-        &probe_model,
-        "seed turn".to_string(),
-    )
-    .await
-    .unwrap();
-    let baseline = last_assistant(&probe)
-        .await
-        .map(|message| message.usage.total_tokens)
-        .expect("probe turn produced usage");
-    drop(probe);
-
-    let big_prompt = format!("seed turn {} crossing", "x".repeat(48_000));
-    let big_tokens = (48_000 + "seed turn  crossing".len() as u64).div_ceil(4);
-    let headroom = baseline + big_tokens / 2;
-    let (engine, _dir, model, mock) = faux_engine_with_mock_telemetry(
-        json!({
-            "responses": [
-                {"text": "seed reply"},
-                {"text": "second reply"},
-                {"text": "requested summary"},
-                {"text": "crossing reply"},
-                {"text": "threshold summary"},
-            ]
-        }),
-        json!({
-            "compaction": {
-                "enabled": true,
-                "reserveTokens": 128_000u64.saturating_sub(FAUX_REQUEST_BUDGET + headroom).max(1),
-                "keepRecentTokens": 10
-            },
-            "autoRefine": { "enabled": false }
-        }),
-    )
-    .await;
-    let mut boundary = TurnBoundary::new(false);
-    admit(&mut boundary, &engine, &model, "seed turn".to_string())
-        .await
-        .unwrap();
-    // Run 2: the requested compaction at the settled boundary (the
-    // request consumes the check, so the threshold never fires).
-    engine.turn_boundary.schedule_compaction(None).await;
-    admit_turn_with_scheduled_request(
-        &mut boundary,
-        &engine,
-        &model,
-        format!("second turn {}", "x".repeat(48_000)),
-    )
-    .await
-    .unwrap();
-    admit(&mut boundary, &engine, &model, big_prompt)
-        .await
-        .unwrap();
-    assert_eq!(compaction_count(&engine).await, 2, "both arms compacted");
-    end_telemetry(&engine).await;
-    let runs = mock_properties(&mock, "agent run completed");
-    assert_eq!(runs.len(), 3, "one run per admitted prompt");
-    assert_eq!(runs[0]["compaction_count"], json!(0));
-    assert_eq!(
-        runs[1]["compaction_count"],
-        json!(1),
-        "the requested compaction counted into its run"
-    );
-    assert_eq!(
-        runs[2]["compaction_count"],
-        json!(1),
-        "the threshold compaction counted into its run"
-    );
-    let ended = mock_properties(&mock, "agent session ended");
-    assert_eq!(
-        ended[0]["compaction_count"],
-        json!(2),
-        "the session total matches the arm count"
-    );
 }
 
 #[tokio::test]

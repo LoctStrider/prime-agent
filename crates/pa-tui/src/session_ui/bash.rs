@@ -110,15 +110,7 @@ impl SessionUi {
         // Optimistic running flag: bash_start only fires after the dispatch, and
         // the clear key must already route to abort_bash in that window.
         self.user_bash_running = true;
-        if let Some(telemetry) = self.telemetry.clone() {
-            let excluded = shortcut.excluded;
-            let side_conversation = side_bash.is_some();
-            tokio::spawn(async move {
-                telemetry
-                    .bash_shortcut_used(excluded, side_conversation)
-                    .await;
-            });
-        }
+
         let run_id = side_bash.as_ref().map(|run| run.run_id.clone());
         let excluded = shortcut.excluded || side_bash.is_some();
         if let Some(run) = side_bash {
@@ -615,12 +607,6 @@ impl SessionUi {
                     }
                 }
             }
-            self.track_bash_bang_executed(
-                started_at,
-                exit_code,
-                cancelled,
-                error_message.as_deref(),
-            );
         } else if let Some(message) = error_message {
             // Transient failures surface in the owning client's pane, not here.
             if !transient {
@@ -640,44 +626,6 @@ impl SessionUi {
 
     /// `tui bash bang executed` telemetry: a duration bucket and an exit-code
     /// class, primitives only — never the command or any output.
-    fn track_bash_bang_executed(
-        &self,
-        started_at: Option<std::time::Instant>,
-        exit_code: Option<i64>,
-        cancelled: bool,
-        error_message: Option<&str>,
-    ) {
-        let Some(telemetry) = self.telemetry.clone() else {
-            return;
-        };
-        let duration_bucket = match started_at {
-            Some(start) => {
-                let secs = start.elapsed().as_secs();
-                match secs {
-                    0..=4 => "lt_5s",
-                    5..=29 => "5_to_30s",
-                    _ => "30s_plus",
-                }
-            }
-            None => "unknown",
-        };
-        let exit_class = if cancelled {
-            "cancelled"
-        } else if error_message.is_some() {
-            "failed"
-        } else {
-            match exit_code {
-                Some(code) if code != 0 => "nonzero",
-                Some(_) => "zero",
-                None => "unknown",
-            }
-        };
-        tokio::spawn(async move {
-            telemetry
-                .bash_bang_executed(duration_bucket, exit_class)
-                .await;
-        });
-    }
 
     /// `abort_bash` off the UI loop: the request never blocks key handling,
     /// and a failure surfaces as a background note.

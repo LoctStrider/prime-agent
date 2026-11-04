@@ -33,7 +33,6 @@ async fn navigation_worker(dir: &std::path::Path, path: &std::path::Path) -> Arc
         active_session_id: "nav-pause-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             // The branch-summary delay holds the navigation open; whichever
             // response the aborted turn leaves, the steer's reply comes from

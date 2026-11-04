@@ -829,12 +829,6 @@ async fn send_reply(
         else {
             return Err("Cannot resume a session without a saved session file".to_string());
         };
-        let telemetry_disabled = request
-            .resume_config
-            .get("telemetryDisabled")
-            .and_then(Value::as_bool)
-            .filter(|disabled| *disabled)
-            .map(|_| true);
         // The resumed session runs in THIS pane: the create carries the
         // client's Herdr pane identity like every create (a client
         // outside a Herdr pane sends nothing — the wire keeps its shape).
@@ -851,7 +845,6 @@ async fn send_reply(
                 no_session: None,
                 name: None,
                 config: Some(request.resume_config.clone()),
-                telemetry_disabled,
                 runtime_metadata: None,
                 lifecycle: None,
                 env: client_env,

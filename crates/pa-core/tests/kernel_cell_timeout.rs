@@ -185,7 +185,6 @@ async fn a_cell_past_its_timeout_is_interrupted_and_the_turn_continues() {
         progress_note_emit: None,
         rlm_depth: None,
         daemonless: false,
-        telemetry: None,
         model_info: None,
         mcp_manager: None,
         prewarm_ipython_kernel: None,

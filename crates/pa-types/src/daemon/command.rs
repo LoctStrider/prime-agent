@@ -242,9 +242,6 @@ pub enum DaemonCommand {
         name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config: Option<Value>,
-        /// Telemetry opt-out: only ever `Some(true)`; absent means enabled.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        telemetry_disabled: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         runtime_metadata: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -268,8 +265,6 @@ pub enum DaemonCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resume_cursor: Option<DaemonResumeCursor>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        telemetry_disabled: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         recovery_config: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         env: Option<std::collections::BTreeMap<String, String>>,
@@ -289,8 +284,6 @@ pub enum DaemonCommand {
         capabilities: Option<Vec<DaemonClientCapability>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resume_cursor: Option<DaemonResumeCursor>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        telemetry_disabled: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recovery_config: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

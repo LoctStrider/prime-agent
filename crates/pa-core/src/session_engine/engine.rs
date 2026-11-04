@@ -66,9 +66,6 @@ pub struct SessionEngineConfig {
     /// The full registry model (input modalities for `model.info`); the
     /// engine derives minimal facts from `model` when absent.
     pub model_info: Option<pa_types::ai::Model>,
-    /// Session telemetry wiring (the telemetry client + execution mode). `None`
-    /// (opt-out) installs nothing; non-depth-0 sessions never install.
-    pub telemetry: Option<super::telemetry::TelemetryWiring>,
     /// Invoked at the goal pause/clear/start command sites and after a
     /// kernel `goal.complete` settles the goal.
     pub queued_goal_context_purge: Option<super::runtime::QueuedGoalContextPurge>,
@@ -130,8 +127,6 @@ pub struct SessionEngine {
     /// against; `replace_acp_mcp_servers` reaches it through this handle.
     pub mcp_manager: std::sync::Arc<std::sync::Mutex<crate::mcp::McpManager>>,
     pub turn_boundary: std::sync::Arc<super::turn_boundary::TurnBoundaryRequests>,
-    /// `None` when telemetry is disabled or the session is not depth 0.
-    pub telemetry: Option<std::sync::Arc<super::telemetry::SessionTelemetry>>,
     /// The kernel `rlm.spawn` handler registers spawn targets into it; the
     /// embedding wires the child-observation sink onto it after the build.
     pub rlm_usage: std::sync::Arc<super::rlm_usage::RlmChildUsageAttributions>,
@@ -196,7 +191,7 @@ fn mcp_gating_blocking(
 ///
 /// # Panics
 ///
-/// Panics if the MCP manager mutex is poisoned while wiring telemetry
+/// Panics if the MCP manager mutex is poisoned while wiring MCP handlers
 /// reporting.
 pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<SessionEngine> {
     let cwd = config.cwd.clone();
@@ -332,36 +327,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     if let Some(extra) = config.extra_host_handlers.clone() {
         handlers.merge(extra);
     }
-    // Per-session counters (MCP connector use, kernel boots, skills, RLM
-    // child usage, feature outcomes) ride `agent session ended`; the seams
-    // below count into them instead of emitting their own events.
-    let session_counters = std::sync::Arc::new(super::telemetry::SessionCounters::default());
-    // The counters gate from the very creation: the MCP and kernel setup
-    // below starts counting (prewarm boots, connector use) long before
-    // the first turn installs the session telemetry, so an off switch
-    // must already be live — otherwise the pre-install window records
-    // what a later enable would send.
-    if let Some(telemetry_switch) = config
-        .telemetry
-        .as_ref()
-        .and_then(|telemetry| telemetry.telemetry_enabled.as_ref())
-    {
-        session_counters.set_telemetry_enabled(telemetry_switch.enabled.clone());
-    }
-    // The `mcp.*` host requests (config/refresh/begin_login) the kernel's
-    // generic MCP registry sends while listing or calling generic servers.
-    // Telemetry counts connector use (never the server name) when the
-    // session is telemetry-enabled; set before the handlers register so
-    // their closures capture the reporter.
-    if config.telemetry.is_some() {
-        let counters = std::sync::Arc::clone(&session_counters);
-        mcp_manager
-            .lock()
-            .unwrap()
-            .set_usage_report(Some(std::sync::Arc::new(move |_action, _server| {
-                counters.note_mcp_connector_use();
-            })));
-    }
     // The registration takes the shared manager: the inventory handlers
     // serve live views per request.
     crate::mcp::McpManager::register_host_handlers(&mcp_manager, &mut handlers);
@@ -397,23 +362,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     if auto_refine_allowed {
         turn_boundary.register_refine_handlers(&mut handlers);
     }
-    // Kernel boots (duration, cold/revived, outcome) count into the
-    // session counters.
-    let on_bootstrap_result = config.telemetry.as_ref().map(|_| {
-        let counters = std::sync::Arc::clone(&session_counters);
-        std::sync::Arc::new(
-            move |stats: crate::kernel::provisioner::KernelBootstrapStats| {
-                counters.note_kernel_bootstrap(
-                    stats.cold,
-                    matches!(
-                        stats.outcome,
-                        crate::kernel::provisioner::KernelBootstrapOutcome::Ready
-                    ),
-                    stats.duration_ms,
-                );
-            },
-        ) as crate::kernel::provisioner::KernelBootstrapResultHandler
-    });
     // A snapshot in the artifact dir revives the namespace on the next boot
     // of the same session; `has_snapshot` drives the resume prewarm below.
     let has_snapshot = session_artifact_dir
@@ -512,7 +460,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         on_restore,
         config.on_background_work_settled.clone(),
         on_unavailable_skills,
-        on_bootstrap_result,
     );
     let mut tools = config.tools.clone();
     if !tools.iter().any(|tool| tool.name() == PYTHON_TOOL_NAME) {
@@ -769,7 +716,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
                 recorder: std::sync::Arc::clone(recorder),
             });
     }
-    let telemetry_agent = std::sync::Arc::clone(&agent);
     let mut session = AgentSession::from_session_arc(
         agent.clone(),
         wiring.session.clone(),
@@ -881,48 +827,16 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         model_info,
     });
 
-    // Installed only for depth-0 sessions: subagents never double-report.
-    let telemetry = match (config.telemetry.take(), config.rlm_depth.unwrap_or(0)) {
-        (Some(wiring), 0) => {
-            let skill_counts = super::telemetry::SkillCounts {
-                skill_count: model_visible_skills.len(),
-                python_skill_count: python_skills.len(),
-            };
-            let installed = super::telemetry::install_session_telemetry(
-                &telemetry_agent,
-                &wiring,
-                Some(skill_counts),
-                std::sync::Arc::clone(&session_counters),
-            )
-            .await?;
-            Some(std::sync::Arc::new(installed))
-        }
-        _ => None,
-    };
-
-    // The `skill_use_count` session counter counts through the session's
-    // telemetry handle (installed once the telemetry composition decided
-    // whether this session reports at all).
-    if let Some(telemetry) = telemetry.as_ref() {
-        session.set_skill_telemetry(telemetry.clone());
-        // Same lifetime for the `rlm_child_*` session counters: the
-        // producer's flush counts through this handle.
-        wiring.rlm_usage.set_telemetry(telemetry.clone());
-    }
     let goal_driver = wiring.runtime.goal_driver().clone();
     // Each row the session's durable store appends that bills a model call
-    // outside the agent loop charges the running goal and telemetry run.
+    // outside the agent loop charges the running goal.
     let charge_goal = goal_driver.lock().await.billed_row_recorder();
-    let charge_run = telemetry.clone();
     wiring
         .rlm_usage
         .store()
         .observe_billed_rows(std::sync::Arc::new(
             move |row: &crate::session::billed_row::BilledRow| {
                 charge_goal(&row.usage);
-                if let Some(telemetry) = &charge_run {
-                    telemetry.note_billed_call(&row.usage);
-                }
             },
         ))
         .await;
@@ -951,7 +865,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         queued_goal_context_purge: config.queued_goal_context_purge.clone(),
         mcp_manager,
         turn_boundary,
-        telemetry,
         rlm_usage: wiring.rlm_usage,
         factory_host,
         rlm_progress_notes: Arc::clone(&wiring.rlm.notes),

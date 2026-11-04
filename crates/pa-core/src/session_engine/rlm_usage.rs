@@ -236,9 +236,6 @@ pub struct RlmChildUsageAttributions {
     /// The parent assistant row each child attributes to, captured at spawn;
     /// dropped in [`Self::forget_child`].
     children: std::sync::Mutex<HashMap<String, String>>,
-    /// The `rlm_child_*` session counters' handle (`None` in sessions
-    /// without telemetry — subagents never double-report).
-    telemetry: std::sync::Mutex<Option<std::sync::Arc<super::telemetry::SessionTelemetry>>>,
     /// The successor a rebuild handed observation to; a post-rebuild
     /// chain never silently drops a late batch.
     forward: std::sync::Mutex<Option<std::sync::Arc<RlmChildUsageAttributions>>>,
@@ -253,7 +250,6 @@ impl RlmChildUsageAttributions {
             store,
             bases: tokio::sync::Mutex::new(HashMap::new()),
             children: std::sync::Mutex::new(HashMap::new()),
-            telemetry: std::sync::Mutex::new(None),
             forward: std::sync::Mutex::new(None),
             fallback: std::sync::Mutex::new(None),
         }
@@ -263,17 +259,6 @@ impl RlmChildUsageAttributions {
     #[must_use]
     pub fn store(&self) -> std::sync::Arc<dyn RlmChildUsageStore> {
         std::sync::Arc::clone(&self.store)
-    }
-
-    /// Bind the telemetry handle the `rlm_child_*` session counters count
-    /// through (the engine wiring installs it
-    /// once the session telemetry is assembled; depth-0 sessions only).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the telemetry state mutex is poisoned.
-    pub fn set_telemetry(&self, telemetry: std::sync::Arc<super::telemetry::SessionTelemetry>) {
-        *self.telemetry.lock().expect("rlm usage telemetry lock") = Some(telemetry);
     }
 
     /// The child attributes to the parent's last assistant row; that row's usage becomes the
@@ -312,7 +297,7 @@ impl RlmChildUsageAttributions {
     ///
     /// # Panics
     ///
-    /// Panics if the forward, children, or telemetry state mutexes are poisoned.
+    /// Panics if the forward, children, or fallback state mutexes are poisoned.
     pub async fn record_child_usage(&self, report: RlmChildUsageReport) -> bool {
         let forward = self.forward.lock().expect("rlm usage forward lock").clone();
         if let Some(forward) = forward {
@@ -357,26 +342,11 @@ impl RlmChildUsageAttributions {
                 .await
             {
                 Ok(result) => {
-                    let (aggregate, created) = match result {
-                        ChildUsageAppendResult::Created(aggregate) => (aggregate, true),
-                        ChildUsageAppendResult::Existing(aggregate) => (aggregate, false),
+                    let aggregate = match result {
+                        ChildUsageAppendResult::Created(aggregate)
+                        | ChildUsageAppendResult::Existing(aggregate) => aggregate,
                     };
                     bases.insert(target_id.clone(), aggregate);
-                    if let Some(telemetry) = self
-                        .telemetry
-                        .lock()
-                        .expect("rlm usage telemetry lock")
-                        .as_ref()
-                        .filter(|_| created)
-                    {
-                        telemetry.note_child_usage_attributed(
-                            usage.input,
-                            usage.output,
-                            usage.cache_read,
-                            usage.cache_write,
-                            usage.cost.total.as_f64(),
-                        );
-                    }
                 }
                 Err(error) => {
                     eprintln!("pa-core: RLM child usage attribution not persisted: {error}");

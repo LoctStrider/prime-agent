@@ -190,12 +190,7 @@ impl SessionUi {
         self.subagents_focused = false;
         self.update_subagent_summary(view);
         // `tui subagents open`: fire-and-forget.
-        if let Some(telemetry) = self.telemetry.clone() {
-            let children_total = self.subagent_counts.total as u64;
-            tokio::spawn(async move {
-                telemetry.subagents_view_opened(children_total).await;
-            });
-        }
+
         self.scoped_agents_view = Some(crate::agents_view::AgentsViewScope {
             active_session_id: Some(self.active_session_id.clone()),
             session_id: Some(self.session_id.clone()),
@@ -206,13 +201,7 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    fn emit_activity_opened(&self, kind: &'static str) {
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.activity_opened(kind).await;
-            });
-        }
-    }
+    fn emit_activity_opened(&self, kind: &'static str) {}
 
     /// The dock group a plain click opens (operator directive 2026-09-29): a click moves the dock's
     /// selection to the clicked group, takes the focus, and opens the group's own view.

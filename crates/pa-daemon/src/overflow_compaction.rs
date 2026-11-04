@@ -304,12 +304,6 @@ impl AgentSessionEngine {
                 // the active run.
                 {
                     let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
                 }
                 // The post-compaction kernel notice goes out before the
                 // settled end: its `message_start`/`message_end` pair
@@ -461,7 +455,6 @@ mod tests {
             session_file: None,
             faux_script: Some(script.to_string()),
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })

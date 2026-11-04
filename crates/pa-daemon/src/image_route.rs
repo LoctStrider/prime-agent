@@ -108,7 +108,6 @@ impl AgentSessionEngine {
                 let allowlist = crate::model_allowlist::load(&self.cwd(), &self.config.agent_dir);
                 if let Err(refusal) = crate::model_allowlist::assert_allowed(&allowlist, &selector)
                 {
-                    self.note_model_refused("image_route", &selector);
                     return Err(format!("{refusal:#}"));
                 }
                 Some(resolved)
@@ -352,7 +351,6 @@ mod tests {
             session_file: None,
             faux_script: None,
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })

@@ -46,7 +46,6 @@ impl Supervisor {
                 unclosed.push(child);
             }
         }
-        self.note_children_closed(closed);
         if !unclosed.is_empty() {
             let supervisor = Arc::clone(self);
             tokio::spawn(async move {
@@ -74,7 +73,6 @@ impl Supervisor {
                     still_open.push(child);
                 }
             }
-            self.note_children_closed(closed);
             unclosed = still_open;
             if unclosed.is_empty() {
                 return;

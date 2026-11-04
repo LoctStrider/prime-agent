@@ -1,6 +1,6 @@
 //! The rows that bill a model call outside the agent loop, end to end
 //! through `create_session`'s wiring: the session store reports each one to
-//! the running goal and the telemetry run.
+//! the running goal.
 use super::*;
 use pa_agent::scripted::ScriptedProvider;
 
@@ -21,10 +21,7 @@ fn scripted_model() -> pa_agent::types::Model {
     }
 }
 
-async fn scripted_engine(
-    provider: &Arc<ScriptedProvider>,
-    telemetry: Option<super::super::telemetry::TelemetryWiring>,
-) -> (SessionEngine, tempfile::TempDir) {
+async fn scripted_engine(provider: &Arc<ScriptedProvider>) -> (SessionEngine, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let cwd = tmp.path().join("project");
     std::fs::create_dir_all(&cwd).unwrap();
@@ -60,7 +57,6 @@ async fn scripted_engine(
         progress_note_emit: None,
         rlm_depth: None,
         daemonless: true,
-        telemetry,
         model_info: None,
         on_background_work_settled: None,
         bash_notice_wake: None,
@@ -90,7 +86,7 @@ fn usage(input: u64, output: u64, cost: f64) -> pa_types::ai::Usage {
 #[tokio::test]
 async fn a_billed_row_charges_the_running_goal() {
     let provider = Arc::new(ScriptedProvider::new(scripted_model()));
-    let (engine, _tmp) = scripted_engine(&provider, None).await;
+    let (engine, _tmp) = scripted_engine(&provider).await;
     {
         let persistence = engine.session.shared_persistence();
         let mut driver = engine.goal_driver.lock().await;
@@ -118,10 +114,9 @@ async fn a_billed_row_charges_the_running_goal() {
     );
 }
 
-/// A side question asked after the run's last turn still bills that run:
-/// the run finalizes at session end with the call in its estimated cost.
+/// A side question model-usage row persists without changing goal accounting.
 #[tokio::test]
-async fn a_billed_row_counts_into_the_run_cost() {
+async fn a_billed_row_persists_outside_the_agent_loop() {
     let model = scripted_model();
     let provider = Arc::new(ScriptedProvider::new(model.clone()));
     let mut steps = pa_agent::scripted::text_turn_steps(&model, "done");
@@ -134,23 +129,7 @@ async fn a_billed_row_counts_into_the_run_cost() {
         }
     }
     provider.push_turn(pa_agent::scripted::ScriptedTurn::Events(steps));
-    let mock = Arc::new(pa_telemetry::MockSink::new());
-    let mut config = pa_telemetry::TelemetryClientConfig::new("install-1");
-    config.batch_size = 1;
-    config.flush_interval = std::time::Duration::from_mins(10);
-    config.sinks = vec![mock.clone() as Arc<dyn pa_telemetry::TelemetrySink>];
-    let telemetry = super::super::telemetry::TelemetryWiring {
-        client: pa_telemetry::TelemetryClient::spawn(config).unwrap(),
-        execution_mode: Some("print".to_string()),
-        now: None,
-        telemetry_enabled: None,
-    };
-    let (engine, _tmp) = scripted_engine(&provider, Some(telemetry)).await;
-    engine
-        .prompt("answer", PromptOptions::default())
-        .await
-        .unwrap();
-    engine.session.agent().wait_for_idle().await;
+    let (engine, _tmp) = scripted_engine(&provider).await;
     engine
         .session
         .record_model_usage(ModelUsage::new(
@@ -160,12 +139,6 @@ async fn a_billed_row_counts_into_the_run_cost() {
             usage(40, 4, 0.25),
         ))
         .await;
-    engine.telemetry.as_ref().unwrap().end().await.unwrap();
-    let costs: Vec<serde_json::Value> = mock
-        .events()
-        .iter()
-        .filter(|event| event.name == "agent run completed")
-        .map(|event| serde_json::to_value(&event.properties).unwrap()["estimated_cost_usd"].clone())
-        .collect();
-    assert_eq!(costs, vec![serde_json::json!(0.75)]);
+    let rows = engine.session.entries().await;
+    assert!(!rows.is_empty());
 }

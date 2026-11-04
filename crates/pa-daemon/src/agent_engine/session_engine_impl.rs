@@ -190,50 +190,6 @@ impl SessionEngine for AgentSessionEngine {
         })
     }
 
-    /// Finalize telemetry on the live session: `agent session ended` + one flush; best-effort.
-    fn end_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let session = self.session.lock().await;
-            let Some(engine) = session.as_deref() else {
-                return;
-            };
-            let Some(telemetry) = &engine.telemetry else {
-                return;
-            };
-            let _ = telemetry.end().await;
-        })
-    }
-
-    /// The replacement teardown (see
-    /// [`Self::retire_session_runtime`]): the moved-to session rebuilds cold.
-    fn teardown_for_replacement(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            self.retire_session_runtime().await;
-        })
-    }
-
-    /// The daemon `kill` path: report `session archived`, then finalize
-    /// (`SessionTelemetry::end` is idempotent).
-    fn archive_session_telemetry(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let session = self.session.lock().await;
-            let Some(engine) = session.as_deref() else {
-                return;
-            };
-            let Some(telemetry) = &engine.telemetry else {
-                return;
-            };
-            telemetry.note_archived();
-            let _ = telemetry.end().await;
-        })
-    }
-
     fn acp_mcp_manager(
         &self,
     ) -> Option<std::sync::Arc<std::sync::Mutex<pa_core::mcp::McpManager>>> {
@@ -675,12 +631,6 @@ impl SessionEngine for AgentSessionEngine {
             pa_core::session_engine::compact_session::CompactOutcome::Ran(run) => {
                 {
                     let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
                 }
                 // The compact-trigger auto-refine review runs after every successful compaction.
                 self.mark_compact_auto_refine_pending();

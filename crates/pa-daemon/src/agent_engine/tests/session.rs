@@ -35,7 +35,6 @@ async fn get_commands_enumerates_skills_before_the_first_prompt() {
                 json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string(),
             ),
             supervisor_link: None,
-            telemetry_disabled: None,
             cron_store: None,
             queued_steering_probe: None,
         })
@@ -116,7 +115,6 @@ fn the_built_session_carries_the_durable_header_id_across_rebuilds() {
         session_file: Some(path),
         faux_script: Some(json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string()),
         supervisor_link: None,
-        telemetry_disabled: Some(true),
         cron_store: None,
         queued_steering_probe: None,
     })
@@ -458,7 +456,6 @@ fn run_skill_prompt_body(
         session_file: None,
         faux_script: Some(json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string()),
         supervisor_link: None,
-        telemetry_disabled: None,
         cron_store: None,
         queued_steering_probe: None,
     })
@@ -633,7 +630,6 @@ fn an_unbuilt_engine_branch_summary_carries_the_request_session_id() {
         session_file: None,
         faux_script: Some(json!({ "engine": "faux", "responses": [{ "text": "ok" }] }).to_string()),
         supervisor_link: None,
-        telemetry_disabled: Some(true),
         cron_store: None,
         queued_steering_probe: None,
     })

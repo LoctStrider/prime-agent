@@ -73,8 +73,7 @@ impl SettingsManager {
     }
 
     /// A new manager over the same settings store (a fresh read; the
-    /// runtime overrides carry over), for long-lived readers such as the
-    /// telemetry switch.
+    /// runtime overrides carry over).
     #[must_use]
     pub fn reopen(&self) -> Self {
         let mut fresh = Self::from_storage(Arc::clone(&self.storage));
@@ -358,24 +357,6 @@ impl SettingsManager {
     pub fn set_rlm_max_depth(&mut self, depth: u64) -> Result<()> {
         self.global.rlm_max_depth = Some(depth);
         self.save_global(&["rlmMaxDepth"])
-    }
-
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_telemetry_enabled(&mut self, enabled: bool) -> Result<()> {
-        let telemetry = self.global.telemetry.get_or_insert_with(Default::default);
-        telemetry.enabled = Some(enabled);
-        self.save_global(&["telemetry.enabled"])
-    }
-
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_telemetry_notice_shown(&mut self, shown: bool) -> Result<()> {
-        let telemetry = self.global.telemetry.get_or_insert_with(Default::default);
-        telemetry.notice_shown = Some(shown);
-        self.save_global(&["telemetry.noticeShown"])
     }
 
     /// # Errors
@@ -820,42 +801,6 @@ impl SettingsManager {
         self.merged.transport.unwrap_or(TransportSetting::Auto)
     }
 
-    /// `telemetry.enabled` when any scope sets it (`None`: nothing set, the
-    /// default-on posture), resolved like [`Self::get_telemetry_enabled`].
-    #[must_use]
-    pub fn telemetry_enabled_setting(&self) -> Option<bool> {
-        let set = [
-            self.global.telemetry.as_ref(),
-            self.project.telemetry.as_ref(),
-            self.runtime_overrides.telemetry.as_ref(),
-        ]
-        .iter()
-        .any(|scope| scope.and_then(|t| t.enabled).is_some());
-        set.then(|| self.get_telemetry_enabled())
-    }
-
-    /// Telemetry is enabled only when every scope says so (default true).
-    #[must_use]
-    pub fn get_telemetry_enabled(&self) -> bool {
-        [
-            self.global.telemetry.as_ref(),
-            self.project.telemetry.as_ref(),
-            self.runtime_overrides.telemetry.as_ref(),
-        ]
-        .iter()
-        .all(|scope| scope.and_then(|t| t.enabled).unwrap_or(true))
-    }
-
-    #[must_use]
-    pub fn get_telemetry_notice_shown(&self) -> bool {
-        self.runtime_overrides
-            .telemetry
-            .as_ref()
-            .and_then(|t| t.notice_shown)
-            .or_else(|| self.global.telemetry.as_ref().and_then(|t| t.notice_shown))
-            .unwrap_or(false)
-    }
-
     /// `requestTiming`: unset means OFF — the per-request timing timeline
     /// is opt-in, exactly the TS default.
     #[must_use]
@@ -1161,12 +1106,11 @@ mod tests {
             Arc::new(super::super::storage::InMemorySettingsStorage::default());
         storage
             .with_lock(SettingsScope::Global, &mut |_| {
-                Some(r#"{ "queueMode": "all", "telemetry": true }"#.into())
+                Some(r#"{ "queueMode": "all" }"#.into())
             })
             .unwrap();
         let manager = SettingsManager::from_storage(storage);
         assert_eq!(manager.get_steering_mode(), QueueModeSetting::All);
-        assert!(manager.get_telemetry_enabled());
     }
 
     #[test]

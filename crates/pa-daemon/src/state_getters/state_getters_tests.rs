@@ -18,7 +18,6 @@ async fn created_worker_at(root: &std::path::Path, session_file: &std::path::Pat
         active_session_id: "getter-session".to_string(),
         agent_dir: root.join("agent"),
         recovery_journal_path: root.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = Arc::new(Worker::new(config, None));
@@ -47,7 +46,6 @@ async fn created_worker() -> Arc<Worker> {
         active_session_id: "getter-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = Arc::new(Worker::new(config, None));
@@ -715,7 +713,6 @@ async fn model_catalog_and_available_models_match_the_ts_shapes() {
         active_session_id: "catalog-session".to_string(),
         agent_dir: dir.path().join("agent"),
         recovery_journal_path: dir.path().join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = Arc::new(Worker::new(config, None));

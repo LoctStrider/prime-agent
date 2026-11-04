@@ -166,7 +166,6 @@ mod tests {
                 active_session_id: "no-kernel".to_string(),
                 agent_dir: agent_dir.clone(),
                 recovery_journal_path: dir.path().join("recovery.jsonl"),
-                telemetry_disabled: Some(true),
                 script: Some(serde_json::json!({ "responses": [] })),
             },
             None,

@@ -142,7 +142,6 @@ impl Worker {
         if let Some(agent_engine) = &self.agent_engine {
             agent_engine.dispose_kernel().await;
         }
-        self.engine.end_telemetry().await;
         self.release_session_lease();
         // The worker's quit (TS `session_shutdown` reason `quit`): the
         // pane reporter releases its pane as the last write on the wire

@@ -154,12 +154,6 @@ impl AgentSessionEngine {
                 // every completed compaction into the active run).
                 {
                     let guard = self.session.blocking_lock();
-                    if let Some(telemetry) = guard
-                        .as_deref()
-                        .and_then(|engine| engine.telemetry.as_ref())
-                    {
-                        telemetry.note_compaction(Some(run.duration_ms));
-                    }
                 }
                 // TS `_scheduleAutoRefineAfterCompaction`: the compaction
                 // arms the compact-trigger review.

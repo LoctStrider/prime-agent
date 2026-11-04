@@ -38,16 +38,7 @@ async fn resolve_child_model_allowlisted(
         &allowlist,
     ) {
         Ok(model) => Ok(model),
-        Err(error) => {
-            if let Some(refusal) = error.downcast_ref::<pa_core::models::ModelAllowlistRefusal>() {
-                this.model_refusal_telemetry.note_refused(
-                    surface,
-                    &refusal.selector,
-                    Path::new(&cwd),
-                );
-            }
-            Err(error)
-        }
+        Err(error) => Err(error),
     }
 }
 

@@ -156,7 +156,6 @@ async fn a_delivered_agent_message_turn_emits_the_custom_row() {
         active_session_id: "target-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({ "responses": ["ack"] })),
     };
     let worker = Arc::new(Worker::new(config, None));
@@ -339,7 +338,6 @@ async fn a_retried_turn_broadcasts_one_agent_end_per_run() {
         active_session_id: "agent-end-retry-session".to_string(),
         agent_dir: dir.join("agent"),
         recovery_journal_path: dir.join("recovery.jsonl"),
-        telemetry_disabled: None,
         script: Some(json!({
             "engine": "faux",
             "responses": [

@@ -74,11 +74,7 @@ impl Worker {
             if refusal
                 .downcast_ref::<pa_core::models::ModelAllowlistRefusal>()
                 .is_some()
-            {
-                if let Some(agent_engine) = &self.agent_engine {
-                    agent_engine.note_model_refused("set_model", &selector);
-                }
-            }
+            {}
             return response_failure(None, "set_model", &refusal.to_string(), None);
         }
         let engine = std::sync::Arc::clone(&self.engine);
@@ -259,7 +255,6 @@ mod tests {
             active_session_id: "allowlist-session".to_string(),
             agent_dir: dir.join("agent"),
             recovery_journal_path: dir.join("recovery.jsonl"),
-            telemetry_disabled: None,
             script: Some(json!({ "responses": ["ack"] })),
         }
     }

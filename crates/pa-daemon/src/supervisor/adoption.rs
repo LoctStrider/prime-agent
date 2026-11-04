@@ -77,31 +77,6 @@ pub(super) enum AdoptionOutcome {
 }
 
 impl Supervisor {
-    /// Emit the boot adoption pass's `worker_adoption` event: the boot kind
-    /// and per-outcome counts, primitives only — never session payload.
-    #[allow(clippy::too_many_arguments)]
-    fn note_worker_adoption(
-        &self,
-        boot: &str,
-        adopted_live: usize,
-        revived: usize,
-        skipped_idle: usize,
-        stopped: usize,
-        failed: usize,
-    ) {
-        if let Some(client) = &*self.telemetry.lock().unwrap() {
-            pa_core::session_engine::telemetry::track_worker_adoption(
-                client,
-                boot,
-                adopted_live,
-                revived,
-                skipped_idle,
-                stopped,
-                failed,
-            );
-        }
-    }
-
     /// Adopt or relaunch persisted workers, concurrently: one dead worker's relaunch must
     /// not delay adopting live sessions; the fan-out is capped at
     /// [`crate::recovery_pacing::ADOPTION_CONCURRENCY`] to avoid a relaunch storm.
@@ -144,20 +119,6 @@ impl Supervisor {
         let skipped_idle = skipped_idle.load(std::sync::atomic::Ordering::Relaxed);
         let stopped = stopped.load(std::sync::atomic::Ordering::Relaxed);
         let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
-        if adopted_live + revived + skipped_idle + stopped + failed > 0 {
-            let boot_label = match boot {
-                AdoptionBoot::UpdateRoster { .. } => "update",
-                AdoptionBoot::PlainStartup => "plain",
-            };
-            self.note_worker_adoption(
-                boot_label,
-                adopted_live,
-                revived,
-                skipped_idle,
-                stopped,
-                failed,
-            );
-        }
         // TS arms the owner cleanup for every adopted worker: an owner that
         // does not reconnect within the grace loses its worker.
         for resident in self.registry.list().await {
@@ -450,7 +411,6 @@ impl Supervisor {
                         self.log_line(&format!(
                             "session worker {active_session_id} registration refused; the worker retires"
                         ));
-                        self.note_daemon_event("registration_refused", None);
                     }
                     return fail(&message);
                 }

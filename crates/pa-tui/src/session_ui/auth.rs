@@ -348,7 +348,6 @@ impl SessionUi {
             return Ok(());
         }
         self.open_mcp_view("/mcp", view, "").await?;
-        self.track_menu_opened("mcp", "command");
         Ok(())
     }
 

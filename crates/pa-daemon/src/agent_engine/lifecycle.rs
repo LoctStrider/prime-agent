@@ -45,17 +45,11 @@ impl AgentSessionEngine {
                 .map(|link_config| link_config.socket_path.clone())
                 .unwrap_or_default(),
         ));
-        let model_refusal_telemetry =
-            std::sync::Arc::new(crate::model_allowlist::ModelRefusalTelemetry::new(
-                config.agent_dir.clone(),
-                config.telemetry_disabled == Some(true),
-            ));
         let children = config.supervisor_link.as_ref().map(|link_config| {
             Arc::new(SupervisorChildSessions::new(
                 Arc::clone(&link),
                 config.agent_dir.clone(),
                 link_config.active_session_id.clone(),
-                std::sync::Arc::clone(&model_refusal_telemetry),
                 link_config.worker_token.clone(),
             ))
         });
@@ -197,7 +191,6 @@ impl AgentSessionEngine {
             compaction_summary_sink: std::sync::Mutex::new(None),
             progress_notes: std::sync::Mutex::new(None),
             progress_note_emit: std::sync::Mutex::new(None),
-            model_refusal_telemetry,
             semantic_identity: std::sync::Mutex::new(None),
         })
     }
@@ -786,9 +779,6 @@ impl AgentSessionEngine {
             // The teardown drops the compact-trigger state with a version bump: an in-flight
             // review round never applies its edits.
             engine.session.discard_compact_auto_refine();
-            if let Some(telemetry) = &engine.telemetry {
-                let _ = telemetry.end().await;
-            }
             engine.dispose_kernel().await;
         }
     }
@@ -1084,27 +1074,6 @@ impl AgentSessionEngine {
         if let Some(children) = &self.children {
             children.set_model(format!("{}/{}", model.provider, model.id));
         }
-        // Session telemetry: the composition root is this worker; the
-        // create's opt-out rides the engine config. Sinks resolve in
-        // `build_client`.
-        let telemetry = (self.config.telemetry_disabled != Some(true)).then(|| {
-            let settings =
-                pa_core::settings::SettingsManager::create(self.cwd(), &self.config.agent_dir);
-            pa_core::session_engine::telemetry::TelemetryWiring {
-                client: pa_core::session_engine::telemetry::build_client(
-                    &settings,
-                    &self.config.agent_dir,
-                ),
-                execution_mode: create_resources.execution_mode.clone(),
-                now: None,
-                telemetry_enabled: Some(
-                    pa_core::session_engine::telemetry::telemetry_enabled_switch(
-                        &self.cwd(),
-                        &self.config.agent_dir,
-                    ),
-                ),
-            }
-        });
         // Bound before the awaited build: the purge-clone must not hold the lock guard across the
         // await.
         let queued_goal_context_purge = self
@@ -1154,7 +1123,6 @@ impl AgentSessionEngine {
         pa_core::session_engine::engine::create_session(SessionEngineConfig {
             on_late_sent_agent_message,
             semantic_edges,
-            telemetry,
             cwd,
             // TS settings.imageModel routing: the daemon owns the routing;
             // the headless surfaces pass `None` to keep their own.

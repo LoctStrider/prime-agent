@@ -103,11 +103,7 @@ impl SessionUi {
         self.remember_pasted_image(marker_id, attachment, view);
         view.editor
             .insert_text_at_cursor(&format_image_marker(marker_id));
-        if let Some(telemetry) = self.telemetry.clone() {
-            tokio::spawn(async move {
-                telemetry.image_pasted(&mime_type).await;
-            });
-        }
+
         if !self.model_supports_images(view) {
             // The attachment is never silently omitted: the routed note or the refusal
             // names the fix; host-blocked images surface the block.
@@ -234,12 +230,7 @@ impl SessionUi {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
             return;
         };
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !draft.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("agents_view", had_images).await;
-            });
-        }
+
         let mut store = self
             .prompt_stash
             .lock()
@@ -255,12 +246,7 @@ impl SessionUi {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
             return;
         };
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !draft.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("session_switch", had_images).await;
-            });
-        }
+
         let mut store = self
             .prompt_stash
             .lock()
@@ -324,12 +310,7 @@ impl SessionUi {
         if let Some(snapshot) = &stash.paste_snapshot {
             view.editor.restore_paste_snapshot(snapshot.clone());
         }
-        if let Some(telemetry) = self.telemetry.clone() {
-            let had_images = !stash.images.is_empty();
-            tokio::spawn(async move {
-                telemetry.prompt_stash("restored", had_images).await;
-            });
-        }
+
         self.note("Restored stashed prompt", view);
         true
     }
@@ -827,35 +808,9 @@ impl SessionUi {
             Ok(()) => {
                 // `agent input stage`: the observed dispatch outcome at the submit seam; the turn's
                 // terminal state rides the session telemetry's run events.
-                if let Some(telemetry) = self.telemetry.clone() {
-                    let (stage, outcome) = if note.turn_was_active {
-                        ("queued", "started")
-                    } else {
-                        ("dispatch", "success")
-                    };
-                    let input_id = note.input_id.clone();
-                    let duration_ms = note.submitted_at.elapsed().as_millis() as u64;
-                    tokio::spawn(async move {
-                        telemetry
-                            .input_stage(input_id, stage, outcome, duration_ms)
-                            .await;
-                    });
-                }
+
                 // A submission while a turn runs parks in the queue behind it.
-                if note.turn_was_active {
-                    if let Some(telemetry) = self.telemetry.clone() {
-                        let lane = match note.behavior {
-                            SubmitBehavior::Steer => "steering",
-                            SubmitBehavior::FollowUp => "follow_up",
-                        };
-                        // The adoption event carries the queue delivery mode (`steering_mode`):
-                        // batched-delivery exposure is the multi-steer batch adoption signal.
-                        let steering_mode = self.steering_mode.clone();
-                        tokio::spawn(async move {
-                            telemetry.queued_input(lane, steering_mode).await;
-                        });
-                    }
-                }
+                if note.turn_was_active {}
                 // The daemon can stream the complete turn before the ACK reaches this channel:
                 // turn_end already owns the idle state, and re-arming it would strand WaitIdle
                 // until timeout. The per-submit end watermark also keeps a prior turn's end from
@@ -887,15 +842,7 @@ impl SessionUi {
             Err(error) => {
                 // `agent input stage`: the submission was rejected at the dispatch
                 // boundary.
-                if let Some(telemetry) = self.telemetry.clone() {
-                    let input_id = note.input_id.clone();
-                    let duration_ms = note.submitted_at.elapsed().as_millis() as u64;
-                    tokio::spawn(async move {
-                        telemetry
-                            .input_stage(input_id, "rejected", "error", duration_ms)
-                            .await;
-                    });
-                }
+
                 let rendered = format!("{error:#}");
                 // One rebind attempt per submit: a prompt refused with the unknown-session error
                 // re-attaches by the DURABLE session id and replays ONCE; the failed attempt never

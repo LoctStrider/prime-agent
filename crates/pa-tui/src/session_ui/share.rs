@@ -121,7 +121,6 @@ impl SessionUi {
                 // In the read-only info panel (the operator's 2026-09-26 directive),
                 // never as transcript rows.
                 self.open_info_panel(view, None, InfoContent::Rows(rows));
-                self.track_menu_opened("traces", "command");
             }
             "off" | "disable" => {
                 if let Err(error) = traces.0.set_enabled(false).await {
@@ -150,7 +149,6 @@ impl SessionUi {
                     crate::traces::TracePreviewOutcome::Ready(info) => {
                         let rows = crate::traces::preview_block(&info);
                         self.open_info_panel(view, None, InfoContent::Rows(rows));
-                        self.track_menu_opened("traces", "command");
                     }
                     crate::traces::TracePreviewOutcome::NoSessionFile => {
                         self.note(

@@ -191,7 +191,6 @@ impl Supervisor {
                         "session worker {} stopped intentionally (status {status:?})",
                         resident.worker_id
                     ));
-                    self.note_daemon_event("worker_exited", Some("normal"));
                     return;
                 }
             } else if adopted_pid != 0 {
@@ -236,7 +235,6 @@ impl Supervisor {
             if self.superseded(&resident, monitor_epoch) {
                 return;
             }
-            self.note_daemon_event("worker_exited", Some("crash"));
             // A hard-killed parent bypasses every worker-side close (#246): close the
             // resident RLM children here, before the restart, so a relaunched parent
             // never resumes beside an orphaned child worker.
@@ -325,7 +323,6 @@ impl Supervisor {
                     // No counter reset on a successful relaunch: a spawn that dies fast must
                     // accumulate toward the give-up cap (the reset comes only from a stable
                     // lifetime on the crash path).
-                    self.note_daemon_event("worker_restarted", None);
                     child = Some(new_child);
                 }
                 Err(error) => {
