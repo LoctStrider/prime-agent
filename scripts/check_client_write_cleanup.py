@@ -148,7 +148,7 @@ def run_case(binary, root, observed):
         (root / 'agent/models.json').write_text(json.dumps(models))
         (root / 'agent/settings.json').write_text(json.dumps({'prewarmPythonKernel': False,
             'defaultProvider': 'parity-local', 'defaultModel': 'parity-1',
-            'onboardingCompleted': True, 'telemetry': {'noticeShown': True}}))
+            'onboardingCompleted': True}))
         path = root / 'd.sock'
         log = open(root / 'daemon.log', 'wb')
         process = subprocess.Popen([str(binary), '--mode', 'daemon', '--daemon-socket', str(path)],
@@ -158,7 +158,7 @@ def run_case(binary, root, observed):
         config = {'cwd': str(root), 'agentDir': str(root / 'agent'),
                   'provider': 'parity-local', 'model': 'parity-1',
                   'noExtensions': True, 'noSkills': True, 'noTools': True,
-                  'noContextFiles': True, 'telemetryDisabled': True}
+                  'noContextFiles': True}
         created = observer.call('create', config=config)
         active = created.get('activeSessionId') or created.get('id')
         assert active, created

@@ -658,7 +658,7 @@ impl Supervisor {
         if removed {
             // A deleted session file can carry passive scheduled rows: the catalog must rescan.
             self.invalidate_passive_catalog();
-            let captured = tombstone_saved_session_delete_captured(
+            tombstone_saved_session_delete_captured(
                 &self.options.agent_dir,
                 sessions_dir.as_deref().unwrap_or(&self.options.agent_dir),
                 &capture,

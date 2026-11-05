@@ -16,7 +16,11 @@ fn status_name(status: DaemonStatus) -> String {
 
 /// ANSI wrapper honoring chalk's enable rule (TTY + no `NO_COLOR`).
 fn paint(code: &str, text: &str) -> String {
-    if use_color() {
+    paint_with_color(code, text, use_color())
+}
+
+fn paint_with_color(code: &str, text: &str, use_color: bool) -> String {
+    if use_color {
         format!(
             "\x1b[{code}m{text}\x1b[{reset}m",
             reset = reset_code(code),
@@ -51,27 +55,54 @@ fn dim(text: &str) -> String {
     paint("2", text)
 }
 
+fn dim_with_color(text: &str, use_color: bool) -> String {
+    paint_with_color("2", text, use_color)
+}
+
 /// The discovered-daemon table: socket, pid, version, status,
 /// sessions, uptime; the default socket is starred with a footnote.
 pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
+    format_daemon_list_table_with_color(daemons, use_color())
+}
+
+fn format_daemon_list_table_with_color(daemons: &[DaemonInfo], use_color: bool) -> String {
     let headers = ["socket", "pid", "version", "status", "sessions", "uptime"];
-    let rows: Vec<[String; 6]> = daemons
+    let rows: Vec<[(String, String); 6]> = daemons
         .iter()
         .map(|daemon| {
+            let status = status_name(daemon.status);
             [
-                if daemon.is_default {
-                    format!("{} *", daemon.socket_path.display())
-                } else {
-                    daemon.socket_path.display().to_string()
+                {
+                    let socket = if daemon.is_default {
+                        format!("{} *", daemon.socket_path.display())
+                    } else {
+                        daemon.socket_path.display().to_string()
+                    };
+                    (socket.clone(), socket)
                 },
-                daemon.pid.map(|pid| pid.to_string()).unwrap_or_default(),
-                daemon.version.clone().unwrap_or_default(),
-                color_status(daemon.status, &status_name(daemon.status)),
-                daemon
-                    .session_count
-                    .map(|count| count.to_string())
-                    .unwrap_or_default(),
-                format_uptime(daemon.uptime_seconds),
+                {
+                    let pid = daemon.pid.map(|pid| pid.to_string()).unwrap_or_default();
+                    (pid.clone(), pid)
+                },
+                {
+                    let version = daemon.version.clone().unwrap_or_default();
+                    (version.clone(), version)
+                },
+                (
+                    status.clone(),
+                    color_status(daemon.status, &status, use_color),
+                ),
+                {
+                    let sessions = daemon
+                        .session_count
+                        .map(|count| count.to_string())
+                        .unwrap_or_default();
+                    (sessions.clone(), sessions)
+                },
+                {
+                    let uptime = format_uptime(daemon.uptime_seconds);
+                    (uptime.clone(), uptime)
+                },
             ]
         })
         .collect();
@@ -80,7 +111,7 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
         .enumerate()
         .map(|(column, header)| {
             rows.iter()
-                .map(|row| row[column].chars().count())
+                .map(|row| row[column].0.chars().count())
                 .chain([header.len()])
                 .max()
                 .unwrap_or(0)
@@ -97,14 +128,22 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
         lines.push(
             row.iter()
                 .enumerate()
-                .map(|(column, value)| pad_end(value, widths[column]))
+                .map(|(column, (visible, rendered))| {
+                    format!(
+                        "{rendered}{}",
+                        " ".repeat(widths[column] - visible.chars().count())
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("  "),
         );
     }
     let table = lines.join("\n");
     if daemons.iter().any(|daemon| daemon.is_default) {
-        format!("{table}\n\n{}", dim("* default background service"))
+        format!(
+            "{table}\n\n{}",
+            dim_with_color("* default background service", use_color)
+        )
     } else {
         table
     }
@@ -112,13 +151,14 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo]) -> String {
 
 /// The status cell carries its severity color; the column width math
 /// runs on the visible text, not the escape codes.
-fn color_status(status: DaemonStatus, value: &str) -> String {
-    match status {
-        DaemonStatus::Current => green(value),
-        DaemonStatus::Stale => paint("33", value),
-        DaemonStatus::Unreachable => red(value),
-        DaemonStatus::OrphanFile => dim(value),
-    }
+fn color_status(status: DaemonStatus, value: &str, use_color: bool) -> String {
+    let code = match status {
+        DaemonStatus::Current => "32",
+        DaemonStatus::Stale => "33",
+        DaemonStatus::Unreachable => "31",
+        DaemonStatus::OrphanFile => "2",
+    };
+    paint_with_color(code, value, use_color)
 }
 
 /// Compact uptime: seconds, minutes, hours, days, weeks.
@@ -206,14 +246,17 @@ mod tests {
 
     #[test]
     fn table_matches_the_ts_layout() {
-        let table = format_daemon_list_table(&[
-            daemon(
-                "/tmp/prime-agent-1000/daemon.sock",
-                DaemonStatus::Current,
-                true,
-            ),
-            daemon("/tmp/other.sock", DaemonStatus::Stale, false),
-        ]);
+        let table = format_daemon_list_table_with_color(
+            &[
+                daemon(
+                    "/tmp/prime-agent-1000/daemon.sock",
+                    DaemonStatus::Current,
+                    true,
+                ),
+                daemon("/tmp/other.sock", DaemonStatus::Stale, false),
+            ],
+            false,
+        );
         // Column widths: socket 35 (the starred default path), pid 3,
         // version 7, status 7, sessions 8, uptime 6; two-space gutters.
         let expected_header = [
@@ -235,6 +278,47 @@ mod tests {
             .unwrap()
             .starts_with("/tmp/prime-agent-1000/daemon.sock *  42   0.1.0"));
         assert!(table.ends_with("* default background service"));
+    }
+
+    #[test]
+    fn colored_status_does_not_change_visible_column_widths() {
+        let rows = vec![[
+            (
+                "/tmp/daemon.sock".to_string(),
+                "/tmp/daemon.sock".to_string(),
+            ),
+            ("42".to_string(), "42".to_string()),
+            ("0.1.0".to_string(), "0.1.0".to_string()),
+            ("current".to_string(), "\x1b[32mcurrent\x1b[39m".to_string()),
+            ("2".to_string(), "2".to_string()),
+            ("1h".to_string(), "1h".to_string()),
+        ]];
+        let headers = ["socket", "pid", "version", "status", "sessions", "uptime"];
+        let widths = headers
+            .iter()
+            .enumerate()
+            .map(|(column, header)| {
+                rows.iter()
+                    .map(|row| row[column].0.chars().count())
+                    .chain([header.len()])
+                    .max()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let line = rows[0]
+            .iter()
+            .enumerate()
+            .map(|(column, (visible, rendered))| {
+                format!(
+                    "{rendered}{}",
+                    " ".repeat(widths[column] - visible.chars().count())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("  ");
+
+        assert!(line.contains("\x1b[32mcurrent\x1b[39m  2"));
+        assert!(!line.contains("\x1b[39m             2"));
     }
 
     #[test]

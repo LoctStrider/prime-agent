@@ -425,9 +425,6 @@ impl Supervisor {
             "list_saved_sessions",
             Some(data),
         )));
-        // Telemetry: how many served rows carry a usage summary (a count only,
-        // never session payload).
-        let rows_with_usage = infos.iter().filter(|info| info.usage.is_some()).count();
         lines
     }
 

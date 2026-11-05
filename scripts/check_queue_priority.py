@@ -46,7 +46,7 @@ def observe(binary, root, observed):
         receiver = Client(path, daemon)
         config = {'cwd': str(root), 'agentDir': str(root / 'agent'), 'provider': 'parity-local',
             'model': 'parity-1', 'noExtensions': True, 'noSkills': True, 'noTools': True,
-            'noContextFiles': True, 'telemetryDisabled': True}
+            'noContextFiles': True}
         active = []
         for client, name in [(control, 'queue-source'), (receiver, 'queue-target')]:
             row = client.call('create', name=name, config=config)

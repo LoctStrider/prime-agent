@@ -122,7 +122,7 @@ def observe(binary, root, observed):
         client = Client(path, daemon)
         observed['hello'] = client.hello
         created = client.call('create', config={'cwd': str(root), 'agentDir': str(root / 'agent'),
-            'provider': 'fixture', 'model': 'oauth-config-fixture', 'telemetryDisabled': True})
+            'provider': 'fixture', 'model': 'oauth-config-fixture'})
         active = created.get('activeSessionId') or created.get('sessionId') or created.get('id')
         assert active, created
         client.call('attach', activeSessionId=active)

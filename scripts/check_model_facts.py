@@ -175,7 +175,7 @@ def run_case(binary, root, observation):
         'providerBackupModel': 'fixture-backup/facts-text',
         'retry': {'enabled': True, 'maxRetries': 1, 'baseDelayMs': 1,
                   'failover': {'enabled': True, 'maxRetries': 0, 'baseDelayMs': 1, 'maxDelayMs': 1}},
-        'onboardingCompleted': True, 'telemetry': {'noticeShown': True}}))
+        'onboardingCompleted': True}))
     path = root / 'daemon.sock'
     process = client = None
     try:

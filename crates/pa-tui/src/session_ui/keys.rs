@@ -212,7 +212,6 @@ impl SessionUi {
     /// Only a local platform-tool write confirms delivery; a terminal
     /// request is reported as unconfirmed.
     fn copy_selection(&mut self, text: &str, view: &mut AgentView) {
-        let lines = text.lines().count().max(1);
         self.copies.push(text.to_string());
         if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
             self.toast("Copied selection to clipboard", view);

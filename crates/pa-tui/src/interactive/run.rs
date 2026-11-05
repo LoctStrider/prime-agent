@@ -722,10 +722,6 @@ async fn run_interactive_surface(
             )
             .await;
     }
-    // The once-per-installation telemetry disclosure (TS
-    // agent-session-services): rendered as an info row here — the alt
-    // screen hides any pre-TUI stderr print, so the row is the only
-    // shape the user actually sees.
     // TS `restorePromptStashOnOpen`: a draft stashed on the way out (a
     // previous chat view of this session left via the agents view or a
     // switch) returns to the editor when its chat reopens.
@@ -809,11 +805,6 @@ async fn run_interactive_surface(
     // queued behind the open dispatch first, in order.
     let mut last_bash_refresh = Instant::now();
     let mut last_factory_refresh = Instant::now();
-    // The enhanced-key modes settle once (kitty answer or fallback) and
-    // report one adoption event; headless runs hold pipes and never probe.
-    let mut enhanced_keys_pending = renderer.is_terminal();
-    // The hyperlink capability is env-based, settles at run start; terminal runs report it once.
-    let mut hyperlinks_pending = renderer.is_terminal();
     // State changes coalesce into at most one frame per MIN_RENDER_INTERVAL_MS; `render_deadline`
     // is armed while a dirty frame waits out the interval.
     let mut last_render_at: Option<Instant> = None;
@@ -863,19 +854,6 @@ async fn run_interactive_surface(
         if !session.dirty {
             session.spawn_transcript_page(&mut view);
         }
-        if enhanced_keys_pending {
-            if let Some((kitty, modify_other_keys)) = crate::enhanced_keys::settle_state() {
-                enhanced_keys_pending = false;
-            }
-        }
-
-        // The OSC 8 hyperlink capability settles once per run: one adoption event reports the gate.
-        // The flush shutdown can wait out a slow endpoint, so the event is spawned instead of
-        // awaited.
-        if hyperlinks_pending {
-            hyperlinks_pending = false;
-        }
-
         // Drain the whole queued input batch in this one iteration (TS dispatches every event of
         // a stdin chunk): a burst applies as one batch instead of one render pass per event. A
         // WaitIdle step is a barrier: it holds at the queue head until the turn finishes.

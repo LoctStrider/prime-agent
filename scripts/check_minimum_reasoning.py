@@ -149,7 +149,7 @@ def run_case(binary, scenario, root, observation):
     agent, sessions, cwd = root / 'agent', root / 'sessions', root / 'work'
     env = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL', 'TZ',
            'PRIME_AGENT_KERNEL_PYTHON', 'PA_E2E_KERNEL_PYTHON') if key in os.environ}
-    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), DO_NOT_TRACK='1',
+    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'),
                PI_OFFLINE='1', PI_CODING_AGENT_DIR=str(agent),
                PRIME_AGENT_CODING_AGENT_DIR=str(agent), PI_SESSION_DIR=str(sessions),
                PRIME_AGENT_SESSION_DIR=str(sessions), XDG_CONFIG_HOME=str(root / 'config'),
@@ -190,8 +190,7 @@ def run_case(binary, scenario, root, observation):
         observation['daemon_hello'] = client.hello
         created = client.call('create', config={
             'cwd': str(cwd), 'agentDir': str(agent), 'sessionDir': str(sessions),
-            'provider': 'fixture', 'model': 'mandatory-fixture', 'thinkingLevel': 'low',
-            'telemetryDisabled': True, 'noExtensions': True, 'noContextFiles': True})
+            'provider': 'fixture', 'model': 'mandatory-fixture', 'thinkingLevel': 'low', 'noExtensions': True, 'noContextFiles': True})
         active = created.get('activeSessionId') or created.get('id')
         assert active, created
         for message in ('Seed the fixture.', 'Schedule the requested auxiliary operation.'):

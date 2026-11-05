@@ -55,10 +55,9 @@ def env_for(root):
                PRIME_AGENT_CODING_AGENT_DIR=str(root / "agent"),
                PI_CODING_AGENT_DIR=str(root / "agent"), TERM="xterm-256color",
                PRIME_AGENT_MODEL_PROVIDER="parity-local", PRIME_AGENT_MODEL="parity-1",
-               PI_OFFLINE="1", DO_NOT_TRACK="1")
+               PI_OFFLINE="1")
     (root / "agent/settings.json").write_text(json.dumps({
-        "onboardingCompleted": True, "onboardingShown": True,
-        "telemetry": {"noticeShown": True}}))
+        "onboardingCompleted": True, "onboardingShown": True}))
     (root / "agent/models.json").write_text(json.dumps({"providers": {
         "parity-local": {"api": "openai-completions", "baseUrl": "http://127.0.0.1:1/v1",
                          "apiKey": "fixture-only", "models": [{"id": "parity-1",

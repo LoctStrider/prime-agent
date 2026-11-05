@@ -1,8 +1,6 @@
 //! The first-run onboarding concern: the sink and readiness seams, the flow task, the pane drive
 //! over the mounted onboarding screens, and the phase that runs the flow before the session screen.
 
-use std::{future::Future, pin::Pin};
-
 use super::{
     mpsc, AgentView, Duration, ExitGuard, Instant, KeybindingsManager, Renderer, Result, SessionUi,
     UiInput,
@@ -28,15 +26,6 @@ pub trait OnboardingSink: Send + Sync {
     ///
     /// Returns `Err` when persisting the completion marker fails.
     fn mark_onboarding_complete(&self) -> anyhow::Result<()>;
-    /// The flow ran but did not complete (TS `runStartupOnboarding`'s
-    /// `finally`): `outcome` is `aborted` (cancelled, quit, or no usable
-    /// model at the end) or `error` (the flow failed). Resolves once the
-    /// report is delivered (or dropped), so a quit right after cannot
-    /// tear the runtime down under it.
-    fn onboarding_incomplete(
-        &self,
-        outcome: &'static str,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 /// The model-readiness probe: the composition root re-resolves the startup model chain, because the
@@ -308,13 +297,6 @@ pub(super) async fn run_onboarding_phase(
         return Ok(false);
     }
     let result = run_onboarding_flow(task, session, view, drive).await;
-    // Only a completed flow sets the marker; every other ending reports
-    // its outcome (TS `onboarding completed` with `aborted` / `error`).
-    if !task.sink.onboarding_shown() {
-        task.sink
-            .onboarding_incomplete(if result.is_err() { "error" } else { "aborted" })
-            .await;
-    }
     result
 }
 

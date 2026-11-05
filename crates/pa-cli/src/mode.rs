@@ -36,18 +36,6 @@ impl AppMode {
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AppMode::Interactive => "interactive",
-            AppMode::Print => "print",
-            AppMode::Json => "json",
-            AppMode::Rpc => "rpc",
-            AppMode::Acp => "acp",
-            AppMode::Daemon => "daemon",
-        }
-    }
-
-    #[must_use]
     pub fn print_output_mode(&self) -> Mode {
         match self {
             AppMode::Json => Mode::Json,
@@ -85,7 +73,6 @@ pub struct RuntimeConfig {
     pub no_themes: bool,
     pub no_context_files: bool,
     pub autonomous: Option<AutonomousConfig>,
-    pub execution_mode: Option<AppMode>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
 }
@@ -246,7 +233,6 @@ pub fn runtime_config_from_args(
         no_themes: parsed.no_themes,
         no_context_files: parsed.no_context_files,
         autonomous: AutonomousConfig::from_args(parsed),
-        execution_mode: (app_mode != AppMode::Daemon).then_some(app_mode),
         // Serialized refine is only used by print/json/rpc clients.
         serialized_refine: !matches!(app_mode, AppMode::Interactive | AppMode::Daemon),
         initial_goal: parsed.goal.as_ref().map(|objective| InitialGoal {
@@ -254,9 +240,4 @@ pub fn runtime_config_from_args(
             token_budget: parsed.goal_token_budget,
         }),
     }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
 }

@@ -2,9 +2,6 @@
 //! view target, the onboarding gate, and the startup fork/select contracts.
 
 use super::*;
-// The tests call the trait methods directly (the impl header alone
-// does not import them).
-use pa_tui::interactive::OnboardingSink;
 use serde_json::Map;
 
 #[test]

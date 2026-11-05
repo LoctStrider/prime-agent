@@ -171,7 +171,6 @@ impl SessionUi {
     /// would not warn anyway, and it fails OPEN (an absent field from an
     /// older daemon, or an unreadable state, draws the warning rather
     /// than suppressing it).
-
     pub(crate) async fn maybe_warn_anthropic_subscription_auth_if_subscribed(
         &mut self,
         provider: Option<&str>,

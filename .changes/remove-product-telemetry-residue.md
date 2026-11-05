@@ -1,0 +1,1 @@
+- Removed leftover product telemetry hooks and settings; session persistence, recovery, usage accounting, billing, and goal budgets remain unchanged.

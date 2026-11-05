@@ -243,7 +243,7 @@ pub struct SessionFile {
     /// (`SessionSummary::anthropic_warning_shown`).
     pub(crate) anthropic_warning_shown: bool,
     /// Told about each appended row that bills a model call (the engine's
-    /// goal budget and telemetry accounting).
+    /// goal budget and session stats).
     pub(crate) billed_row_sink: BilledRowSinkSlot,
 }
 

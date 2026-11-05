@@ -123,8 +123,8 @@ impl AgentSessionEngine {
             guard.as_ref().cloned()
         };
         let persistence = core.as_ref().map(|core| core.session.shared_persistence());
-        // Retry/failover adoption telemetry (TS `auto_retry_start` counting):
-        // retries increment `retry_count`, provider switches `failover_count`.
+        // Retries increment `retry_count`; provider switches increment
+        // `failover_count`.
         // The semantic-edge recorder rides the same snapshot (TS
         // `prepareTurnRetry` / `clearTurnRetry` ride the retry events: the
         // parked id makes the retried call reuse the failed attempt's

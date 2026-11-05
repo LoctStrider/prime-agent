@@ -300,7 +300,7 @@ def run_case(binary, name, case, root, observation):
     agent, cwd = root / 'agent', root / 'work'
     env = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL', 'TZ',
         'PRIME_AGENT_KERNEL_PYTHON', 'PA_E2E_KERNEL_PYTHON') if key in os.environ}
-    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), DO_NOT_TRACK='1', PI_OFFLINE='1',
+    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), PI_OFFLINE='1',
         PI_CODING_AGENT_DIR=str(agent), PRIME_AGENT_CODING_AGENT_DIR=str(agent),
         PI_SESSION_DIR=str(root / 'sessions'), PRIME_AGENT_SESSION_DIR=str(root / 'sessions'),
         XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'), XDG_DATA_HOME=str(root / 'data'))
@@ -349,7 +349,7 @@ def run_case(binary, name, case, root, observation):
         created = client.call('create', name='kernel-env-' + name, config={
             'cwd': str(cwd), 'agentDir': str(agent), 'sessionDir': str(root / 'sessions'),
             'provider': 'fixture', 'model': 'env-fixture', 'noExtensions': True,
-            'noContextFiles': True, 'telemetryDisabled': True})
+            'noContextFiles': True})
         active = created.get('activeSessionId') or created.get('id')
         assert active, 'create omitted active identity'
         _, descriptor = worker_descriptor(agent, active, socket_path)

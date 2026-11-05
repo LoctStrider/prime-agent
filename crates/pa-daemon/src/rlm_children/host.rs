@@ -18,7 +18,6 @@ use super::{
 async fn resolve_child_model_allowlisted(
     this: &SupervisorChildSessionsInner,
     reference: Option<&str>,
-    surface: &'static str,
     target: &str,
 ) -> Result<String> {
     let identity = this.identity.lock().expect("identity lock").clone();
@@ -102,13 +101,9 @@ impl RlmSubagentHost for SupervisorChildSessions {
             let admission = async {
                 this.assert_name_available(&name, identity.rlm_depth + 1)
                     .await?;
-                let model = resolve_child_model_allowlisted(
-                    &this,
-                    request.model.as_deref(),
-                    "spawn",
-                    "subagent",
-                )
-                .await?;
+                let model =
+                    resolve_child_model_allowlisted(&this, request.model.as_deref(), "subagent")
+                        .await?;
                 assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
                 let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
                 let child_dir = this.child_session_dir(&child_id, &identity)?;
@@ -326,7 +321,6 @@ impl RlmSubagentHost for SupervisorChildSessions {
             let model = resolve_child_model_allowlisted(
                 &this,
                 request.model.as_deref(),
-                "create_session",
                 "top-level session",
             )
             .await?;

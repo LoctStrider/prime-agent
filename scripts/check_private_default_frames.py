@@ -69,7 +69,7 @@ def prepare(root, scenario):
         'defaultProvider': 'prime-inference', 'defaultModel': PRIVATE,
         'enabledModels': ['prime-inference/' + value for value in scope],
         'prewarmPythonKernel': False, 'onboardingCompleted': True,
-        'onboardingShown': True, 'telemetry': {'noticeShown': True},
+        'onboardingShown': True,
         'autoRefine': {'enabled': False}}))
     (agent / 'models.json').write_text(json.dumps({'providers': {'prime-inference': {
         'api': 'openai-completions', 'baseUrl': 'https://api.pinference.ai/api/v1',
@@ -82,7 +82,7 @@ def prepare(root, scenario):
                XDG_DATA_HOME=str(root / 'xdg'), TERM='xterm-256color', COLORTERM='truecolor',
                PI_CODING_AGENT_DIR=str(agent), PRIME_AGENT_CODING_AGENT_DIR=str(agent),
                PI_SESSION_DIR=str(root / 'sessions'), PRIME_AGENT_SESSION_DIR=str(root / 'sessions'),
-               PI_OFFLINE='1', DO_NOT_TRACK='1')
+               PI_OFFLINE='1')
     env[TAG] = str(root)
     return env
 

@@ -156,8 +156,6 @@ fn daemon_acp_create(
     let mut create_config = serde_json::json!({
         "cwd": cwd.display().to_string(),
         "sessionDir": session_dir.display().to_string(),
-        // The telemetry execution mode (TS main.ts `executionMode: appMode`).
-        "executionMode": "acp",
     });
     if let Some(provider) = &config.provider {
         create_config["provider"] = serde_json::json!(provider);
@@ -236,7 +234,7 @@ fn run_rpc_mode(options: &RunOptions) -> Result<i32, String> {
 async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
     let config = &options.config;
     let mut initial_lease = None;
-    let parts = build_headless_engine_parts(options, "rpc", &mut initial_lease).await?;
+    let parts = build_headless_engine_parts(options, &mut initial_lease).await?;
     if let Some(goal) = &config.initial_goal {
         parts
             .engine
@@ -336,7 +334,6 @@ fn rpc_engine_factory(options: &RunOptions) -> pa_daemon::rpc::session::RpcEngin
                 &options,
                 faux_script_env()?.as_ref(),
                 Some(manager),
-                "rpc",
                 &HeadlessEmbedding::Rpc,
             )
             .await?;
@@ -404,8 +401,6 @@ async fn print_mode_main(
     options: &RunOptions,
     lease: &mut Option<pa_daemon::lease::SessionLease>,
 ) -> Result<i32, String> {
-    // `print` or `json`: the telemetry execution mode is the app mode (TS
-    // main.ts `executionMode: appMode`).
     let (session_manager, opened_lease) = select_session_manager_with_lease(options)?;
     *lease = opened_lease;
     let session_manager = session_manager.unwrap_or_else(|| {
@@ -420,7 +415,6 @@ async fn print_mode_main(
         options,
         faux.as_ref(),
         Some(session_manager),
-        options.app_mode.as_str(),
         &HeadlessEmbedding::Root {
             node: std::sync::Arc::clone(&root_node),
         },
@@ -457,17 +451,11 @@ pub(crate) async fn build_engine(
     options: &RunOptions,
     faux: Option<&serde_json::Value>,
     session_manager: Option<pa_core::session::manager::SessionManager>,
-    execution_mode: &str,
     embedding: &HeadlessEmbedding,
 ) -> Result<HeadlessEngine, String> {
     match faux {
-        Some(script) => {
-            build_faux_engine_with(options, script, session_manager, execution_mode, embedding)
-                .await
-        }
-        None => {
-            build_headless_engine_with(options, session_manager, execution_mode, embedding).await
-        }
+        Some(script) => build_faux_engine_with(options, script, session_manager, embedding).await,
+        None => build_headless_engine_with(options, session_manager, embedding).await,
     }
 }
 
@@ -607,20 +595,14 @@ pub(crate) struct HeadlessEngine {
 /// Transfer the opened lease to its mode before fallible engine assembly.
 async fn build_headless_engine_parts(
     options: &RunOptions,
-    execution_mode: &str,
     lease: &mut Option<pa_daemon::lease::SessionLease>,
 ) -> Result<HeadlessEngine, String> {
-    // Every headless mode discloses immediately (TS main: only the
-    // interactive `deferTelemetryNoticeForOnboarding` holds the notice
-    // back behind onboarding; `--list-models` never reaches this
-    // assembly, matching the TS exit before its diagnostics report).
     let (session_manager, opened_lease) = select_session_manager_with_lease(options)?;
     *lease = opened_lease;
     build_engine(
         options,
         faux_script_env()?.as_ref(),
         session_manager,
-        execution_mode,
         &HeadlessEmbedding::Rpc,
     )
     .await
@@ -649,7 +631,6 @@ fn select_session_manager_with_lease(
 pub(crate) async fn build_headless_engine_with(
     options: &RunOptions,
     session_manager: Option<pa_core::session::manager::SessionManager>,
-    execution_mode: &str,
     embedding: &HeadlessEmbedding,
 ) -> Result<HeadlessEngine, String> {
     let config = &options.config;

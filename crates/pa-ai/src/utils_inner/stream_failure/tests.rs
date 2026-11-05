@@ -447,8 +447,8 @@ fn http_error_records_sdk_name() {
     );
 }
 
-/// The stream-drop class: the failure names the class (the telemetry
-/// classifier's `stream_drop` token rides the message) and the detail
+/// The stream-drop class: the failure names the classifier's
+/// `stream_drop` token and the detail
 /// names the block the stream was inside (the disclosure the silent
 /// drop class was missing).
 #[test]
@@ -467,7 +467,7 @@ fn stream_drop_failures_disclose_the_class_and_block() {
         format_stream_failure_message(&ProviderError::StreamFailure(failure.clone())),
         failure.message
     );
-    // The serialized kind is the telemetry/telemetry-classifier token.
+    // The serialized kind matches the failure classifier's token.
     let kind_json = serde_json::to_value(failure.info.kind).expect("kind serializes");
     assert_eq!(kind_json, serde_json::json!("stream_drop"));
 

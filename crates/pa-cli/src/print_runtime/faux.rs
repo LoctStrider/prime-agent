@@ -40,8 +40,6 @@ pub(crate) async fn build_faux_engine_with(
     options: &RunOptions,
     script: &serde_json::Value,
     session_manager: Option<pa_core::session::manager::SessionManager>,
-    // The execution mode label carries through the real path only.
-    _execution_mode: &str,
     embedding: &HeadlessEmbedding,
 ) -> Result<HeadlessEngine, String> {
     let config = &options.config;
@@ -138,7 +136,6 @@ pub(crate) async fn build_faux_engine_with(
         pa_core::session_engine::engine::SessionEngineConfig {
             on_late_sent_agent_message,
             cron_store: None,
-            // Faux verification harness: no product telemetry.
             semantic_edges: None,
             steering_mode: None,
             follow_up_mode: None,

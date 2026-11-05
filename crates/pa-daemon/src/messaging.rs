@@ -260,8 +260,6 @@ impl Supervisor {
             no_session: None,
             name: None,
             config: Some(json!({ "cwd": info.cwd, "rlmDepth": info.rlm_depth })),
-            // Telemetry opt-out only ever rides an explicit user create;
-            // the wake create inherits the daemon default (absent).
             runtime_metadata: None,
             lifecycle: None,
             env: None,

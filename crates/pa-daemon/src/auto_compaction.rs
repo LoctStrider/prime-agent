@@ -150,11 +150,6 @@ impl AgentSessionEngine {
                         &serde_json::Value::Null,
                     );
                 }
-                // Adoption telemetry (TS `compaction_end` handling counts
-                // every completed compaction into the active run).
-                {
-                    let guard = self.session.blocking_lock();
-                }
                 // TS `_scheduleAutoRefineAfterCompaction`: the compaction
                 // arms the compact-trigger review.
                 self.mark_compact_auto_refine_pending();

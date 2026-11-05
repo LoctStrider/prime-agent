@@ -114,7 +114,6 @@ fn child_env(ctx: &RunCtx) -> Vec<(String, String)> {
             "PRIME_AGENT_CODING_AGENT_DIR".to_string(),
             ctx.agent_dir.display().to_string(),
         ),
-        ("DO_NOT_TRACK".to_string(), "1".to_string()),
         ("TERM".to_string(), "xterm-ghostty".to_string()),
         ("TERM_PROGRAM".to_string(), "ghostty".to_string()),
     ];

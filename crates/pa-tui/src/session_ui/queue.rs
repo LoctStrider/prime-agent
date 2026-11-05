@@ -18,7 +18,6 @@ impl SessionUi {
         direction: QueueBrowseDirection,
         view: &mut AgentView,
     ) {
-        let entering = !self.queue_selection.is_browsing();
         let text = self
             .queue_selection
             .browse(&view.queued, &view.editor.get_text(), direction);
@@ -27,7 +26,6 @@ impl SessionUi {
         }
         // Entering the browse (first selection of a parked message) is the
         // queue-edit adoption signal; per-arrow moves are not.
-        if entering && self.queue_selection.is_browsing() {}
         self.sync_queue_selection(view);
     }
 

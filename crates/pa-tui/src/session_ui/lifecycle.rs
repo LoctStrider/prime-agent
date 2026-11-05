@@ -31,12 +31,8 @@ impl SessionUi {
     ) -> Result<SessionUi> {
         let active_session_id = match &options.session {
             SessionSelection::New => create_session(&client, options, None).await?,
-            SessionSelection::NewChild { rlm_depth, .. } => {
+            SessionSelection::NewChild { .. } => {
                 let id = create_session(&client, options, None).await?;
-                // `tui agents new scoped`, fire-and-forget (the
-                // `subagents_view_opened` pattern): the open never waits on
-                // the telemetry flush.
-
                 id
             }
             SessionSelection::Attach(id) => id.clone(),
@@ -180,7 +176,6 @@ impl SessionUi {
             escape_tree_shortcut_spent: false,
             user_bash_running: false,
             user_bash_card: None,
-            user_bash_started_at: None,
             user_bash_counter: 0,
             resync_bash: None,
             loader_anchor_ms: None,
@@ -637,7 +632,6 @@ impl SessionUi {
         match kind {
             RebuildKind::Rebind => {
                 self.user_bash_card = None;
-                self.user_bash_started_at = None;
             }
             RebuildKind::Resync => {
                 if let Some(resync) = resync_bash {
@@ -660,7 +654,6 @@ impl SessionUi {
                             {
                                 card.set_complete(None, false, false, None);
                             }
-                            self.user_bash_started_at = None;
                             // TS flushes inside the active-component branch:
                             // a side run (no mounted card) never flushes.
                             if !resync.snap_streaming {

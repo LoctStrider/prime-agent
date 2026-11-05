@@ -300,11 +300,6 @@ impl AgentSessionEngine {
         };
         match outcome {
             Ok(Ok(CompactOutcome::Ran(run))) => {
-                // Adoption telemetry: every completed compaction counts into
-                // the active run.
-                {
-                    let guard = self.session.blocking_lock();
-                }
                 // The post-compaction kernel notice goes out before the
                 // settled end: its `message_start`/`message_end` pair
                 // precedes `compaction_end`.

@@ -117,10 +117,7 @@ impl SessionUi {
             .as_mut()
             .map(|picker| picker.handle_key(&id, view.editor.keybindings()));
         match action {
-            Some(ModelPickerAction::None) | None => {}
-            Some(ModelPickerAction::ScopeToggled { scoped }) => {
-                // The picker stays mounted; only the adoption event rides out.
-            }
+            Some(ModelPickerAction::None | ModelPickerAction::ScopeToggled { .. }) | None => {}
             Some(ModelPickerAction::Cancel) => {
                 view.model_picker = None;
                 self.picker_restored_draft = false;

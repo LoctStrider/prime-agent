@@ -287,7 +287,6 @@ impl Supervisor {
             "skills",
             "promptTemplates",
             "autonomous",
-            "executionMode",
         ] {
             if let Some(value) = config_object.and_then(|config| config.get(key)) {
                 durable_rest.insert(key.to_string(), value.clone());
@@ -1046,7 +1045,7 @@ impl Supervisor {
 
 /// The real graceful-stop transport (spec §5 `Stopping`): the routed
 /// `shutdown` request - the worker's handler is the flush barrier (it
-/// persists the recovery journal and finalizes telemetry before replying) -
+/// persists the recovery journal before replying) -
 /// and a pid/start-id liveness poll for the exit wait (a foreign process
 /// cannot be waited on directly). The stop is marked intentional before the
 /// request so the monitor never races an exit into a crash-restart.

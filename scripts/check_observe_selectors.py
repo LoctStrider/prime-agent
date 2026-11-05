@@ -267,7 +267,7 @@ def run_case(binary, root, observation):
     root = root.resolve()
     env = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL', 'TZ',
         'PRIME_AGENT_KERNEL_PYTHON', 'PA_E2E_KERNEL_PYTHON') if key in os.environ}
-    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), DO_NOT_TRACK='1', PI_OFFLINE='1',
+    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), PI_OFFLINE='1',
         PI_CODING_AGENT_DIR=str(root / 'agent'), PRIME_AGENT_CODING_AGENT_DIR=str(root / 'agent'),
         PI_SESSION_DIR=str(root / 'sessions'), PRIME_AGENT_SESSION_DIR=str(root / 'sessions'),
         XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'), XDG_DATA_HOME=str(root / 'data'),
@@ -307,7 +307,7 @@ def run_case(binary, root, observation):
         tracker.start()
         config = {'cwd': str(root / 'work'), 'agentDir': str(root / 'agent'),
                   'sessionDir': str(root / 'sessions'), 'provider': 'fixture', 'model': 'observe-fixture',
-                  'noExtensions': True, 'noContextFiles': True, 'telemetryDisabled': True}
+                  'noExtensions': True, 'noContextFiles': True}
         created = observation['created'] = {}
         def create(name):
             options = {'config': dict(config), 'name': name, 'lifecycle': 'resident'}

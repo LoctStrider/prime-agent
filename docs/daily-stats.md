@@ -1,5 +1,10 @@
 # Daily Prime Agent stats
 
+This standalone scheduled report uses PostHog's analytics API to prepare aggregate
+business metrics for Slack. It is separate from product telemetry, does not ship in
+Prime Agent, and is retained independently. Its workflow requires explicit publish
+gates; local synthetic tests and response replay do not access PostHog or Slack.
+
 The GitHub Actions workflow `Prime Agent daily stats` prepares a report at 9 AM
 America/Los_Angeles, including daylight saving changes. GitHub may start scheduled
 runs late. The report covers the previous completed **UTC day**, matching the

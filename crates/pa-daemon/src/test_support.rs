@@ -1,7 +1,4 @@
-//! Test-only shared state: one crate-wide lock for the process env.
-
-#[cfg(test)]
-pub(crate) static TELEMETRY_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+//! Test-only shared helpers.
 
 /// Write a harness store holding one factory spec per id (plus a memory, which never counts as a
 /// spec) — the on-disk shape the kernel's harness writes.

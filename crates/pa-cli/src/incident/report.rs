@@ -26,22 +26,23 @@ pub(crate) struct IncidentReport {
 
 /// Colorize by severity (auto-disabled off-TTY and under `NO_COLOR`):
 /// red for critical/error, yellow for warn, dim for info.
-fn colorize_severity(severity: IncidentSeverity, label: &str) -> String {
-    match severity {
-        IncidentSeverity::Critical | IncidentSeverity::Error => paint("31", label),
-        IncidentSeverity::Warn => paint("33", label),
-        IncidentSeverity::Info => paint("2", label),
-    }
+fn colorize_severity(severity: IncidentSeverity, label: &str, use_color: bool) -> String {
+    let code = match severity {
+        IncidentSeverity::Critical | IncidentSeverity::Error => "31",
+        IncidentSeverity::Warn => "33",
+        IncidentSeverity::Info => "2",
+    };
+    paint_with_color(code, label, use_color)
 }
 
-fn dim(text: &str) -> String {
-    paint("2", text)
+fn dim(text: &str, use_color: bool) -> String {
+    paint_with_color("2", text, use_color)
 }
 
 /// The ANSI wrapper honoring chalk's enable rule (TTY + no `NO_COLOR`),
 /// with chalk's reset codes (bold/dim close with 22, colors with 39).
-fn paint(code: &str, text: &str) -> String {
-    if use_color() {
+fn paint_with_color(code: &str, text: &str, use_color: bool) -> String {
+    if use_color {
         let reset = if code == "2" { "22" } else { "39" };
         format!("\x1b[{code}m{text}\x1b[{reset}m")
     } else {
@@ -121,6 +122,14 @@ pub(crate) fn build_incident_report(
     entries: &[IncidentLogEntry],
     options: &IncidentReportOptions,
 ) -> IncidentReport {
+    build_incident_report_with_color(entries, options, use_color())
+}
+
+fn build_incident_report_with_color(
+    entries: &[IncidentLogEntry],
+    options: &IncidentReportOptions,
+    use_color: bool,
+) -> IncidentReport {
     let worker_pids = collect_worker_pid_map(entries);
     let all_events = collect_incident_events(entries, &worker_pids);
     let mut events: Vec<IncidentEvent> = all_events
@@ -186,7 +195,8 @@ pub(crate) fn build_incident_report(
                     format_incident_time(group.first.time_ms),
                     colorize_severity(
                         group.first.severity,
-                        &format!("{:<8}", group.first.severity)
+                        &format!("{:<8}", group.first.severity),
+                        use_color,
                     ),
                     group.first.summary,
                     suffix
@@ -194,7 +204,7 @@ pub(crate) fn build_incident_report(
             })
             .collect();
         if lines.is_empty() {
-            lines.push(format!("  {}", dim("(none)")));
+            lines.push(format!("  {}", dim("(none)", use_color)));
         }
         sections.push(vec![title.to_string()].into_iter().chain(lines).collect());
     }

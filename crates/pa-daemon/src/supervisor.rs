@@ -289,9 +289,6 @@ impl Supervisor {
     /// socket cannot be bound, the recovery journal cannot be opened, or the accept loop
     /// exhausts its give-up budget.
     ///
-    /// # Panics
-    ///
-    /// Panics when the telemetry mutex is poisoned (the holder panicked mid-lock).
     pub async fn run(self: Arc<Self>) -> Result<()> {
         // Before any socket or worker exists: workers and their kernels
         // inherit the raised limit.

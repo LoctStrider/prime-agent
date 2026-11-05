@@ -122,7 +122,7 @@ def observe(binary, root, observed):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     (root / 'agent/settings.json').write_text(json.dumps({'factory': {'enabled': True},
         'prewarmPythonKernel': False, 'defaultProvider': 'parity-local', 'defaultModel': 'parity-1',
-        'onboardingCompleted': True, 'onboardingShown': True, 'telemetry': {'noticeShown': True}}))
+        'onboardingCompleted': True, 'onboardingShown': True}))
     (root / 'agent/models.json').write_text(json.dumps({'providers': {'parity-local': {
         'api': 'openai-completions', 'apiKey': 'fixture-only',
         'baseUrl': f'http://127.0.0.1:{server.server_port}/v1', 'models': [{
@@ -140,7 +140,7 @@ def observe(binary, root, observed):
         control = Client(path, daemon)
         observed['hello'] = control.hello
         created = control.call('create', config={'cwd': str(root), 'agentDir': str(root / 'agent'),
-            'provider': 'parity-local', 'model': 'parity-1', 'telemetryDisabled': True,
+            'provider': 'parity-local', 'model': 'parity-1',
             'noExtensions': True, 'noContextFiles': True})
         active = created.get('activeSessionId') or created.get('id')
         assert active, created

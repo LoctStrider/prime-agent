@@ -142,8 +142,7 @@ def observe(binary, root, observed):
     env[TAG] = str(root)
     (root / 'agent/settings.json').write_text(json.dumps({
         'prewarmPythonKernel': False, 'sessionArchiveMaxSessions': 'off',
-        'sessionArchiveMaxAgeDays': 'off', 'onboardingCompleted': True,
-        'telemetry': {'noticeShown': True}}))
+        'sessionArchiveMaxAgeDays': 'off', 'onboardingCompleted': True}))
     expected = seed(root)
     observed['fixture'] = {'count': COUNT, 'mtime_base_ms': BASE_MS, 'mtime_step_ms': 10000,
         'archive_max_sessions': 'off', 'archive_max_age_days': 'off',

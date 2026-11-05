@@ -34,20 +34,10 @@ pub(crate) struct PromptSubmitNote {
     /// The stash head this submit captured (TS `promptStashToRestore`): its
     /// admitted outcome restores it if it is still the head.
     pub(crate) stash_to_restore: Option<PromptStash>,
-    /// Whether the turn was already active at submit time (the
-    /// queued-input telemetry's lane gate; the inline path read the same
-    /// flag after its await, which nothing could move while the loop was
-    /// blocked).
-    pub(crate) turn_was_active: bool,
     /// The expected end of this admitted prompt in submit order.
     pub(crate) expected_turn_end: u64,
     /// A newer submit supersedes an older one's draft-restore right.
     pub(crate) generation: u64,
-    /// The submission's `input_id` (`agent input stage`).
-    pub(crate) input_id: String,
-    /// When the submit was accepted (the stage durations measure from
-    /// here).
-    pub(crate) submitted_at: std::time::Instant,
     /// Whether a failure may still rebind once; the replayed request is the
     /// second and last attempt.
     pub(crate) rebind_available: bool,
@@ -67,13 +57,9 @@ pub(crate) struct PromptOrder {
     pub(crate) images: Option<serde_json::Value>,
     pub(crate) stashed_images: Vec<(u64, LoadedImage)>,
     pub(crate) stash_to_restore: Option<PromptStash>,
-    pub(crate) turn_was_active: bool,
     pub(crate) expected_turn_end: u64,
     pub(crate) generation: u64,
     pub(crate) rebind_available: bool,
-    /// A fresh uuid per submitted prompt (`agent input stage`), pairing the stage observations.
-    pub(crate) input_id: String,
-    pub(crate) submitted_at: std::time::Instant,
 }
 
 // A refused request is definitive even when its message quotes a transport failure.
@@ -99,7 +85,6 @@ impl SessionUi {
         };
         let marker_id = self.next_image_marker_id;
         self.next_image_marker_id += 1;
-        let mime_type = attachment.mime_type.clone();
         self.remember_pasted_image(marker_id, attachment, view);
         view.editor
             .insert_text_at_cursor(&format_image_marker(marker_id));
@@ -685,9 +670,6 @@ impl SessionUi {
         rebind_available: bool,
         generation: u64,
     ) {
-        // The turn state at submit time gates the telemetry; an earlier submit
-        // still in flight counts as active here.
-        let turn_was_active = self.turn_active || self.prompt_in_flight > 0;
         let expected_turn_end = self.last_prompt_turn_end.max(self.turn_ends_seen) + 1;
         self.last_prompt_turn_end = expected_turn_end;
         self.prompt_in_flight += 1;
@@ -700,12 +682,9 @@ impl SessionUi {
             images,
             stashed_images,
             stash_to_restore,
-            turn_was_active,
             expected_turn_end,
             generation,
             rebind_available,
-            input_id: uuid::Uuid::new_v4().to_string(),
-            submitted_at: std::time::Instant::now(),
         });
     }
 
@@ -758,11 +737,8 @@ impl SessionUi {
                 images: order.images,
                 stashed_images: order.stashed_images,
                 stash_to_restore: order.stash_to_restore,
-                turn_was_active: order.turn_was_active,
                 expected_turn_end: order.expected_turn_end,
                 generation: order.generation,
-                input_id: order.input_id,
-                submitted_at: order.submitted_at,
                 rebind_available: order.rebind_available,
                 result,
             });
@@ -806,11 +782,6 @@ impl SessionUi {
         }
         match note.result {
             Ok(()) => {
-                // `agent input stage`: the observed dispatch outcome at the submit seam; the turn's
-                // terminal state rides the session telemetry's run events.
-
-                // A submission while a turn runs parks in the queue behind it.
-                if note.turn_was_active {}
                 // The daemon can stream the complete turn before the ACK reaches this channel:
                 // turn_end already owns the idle state, and re-arming it would strand WaitIdle
                 // until timeout. The per-submit end watermark also keeps a prior turn's end from

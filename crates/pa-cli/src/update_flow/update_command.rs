@@ -58,8 +58,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
         &status_path,
     )? {
         AcquireOutcome::Join { status_path } => {
-            // Relay the running update's terminal status; the running coordinator's invoker owns
-            // the telemetry emission.
             let status = tail_status(&status_path).await;
             print_terminal(&status);
             return Ok(i32::from(status.state != UpdateState::Complete));
@@ -67,9 +65,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
         AcquireOutcome::Acquired => {}
     }
     let mut writer = StatusWriter::new(&status_path, &update_id, &socket_path.to_string_lossy())?;
-    // §11 telemetry: one `update_<phase>` event per status transition; the
-    // tail below derives the coordinator-side events from the same file.
-    let mut phases = PhaseTelemetry::open();
     writer.set_state(UpdateState::Planning)?;
     let budget = UpdateTimeoutBudget::from_env();
     let download_base = std::env::var("PRIME_AGENT_DOWNLOAD_BASE_URL").ok();
@@ -92,11 +87,9 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             archive_sha256,
             base_url,
         }) => {
-            // The plan's target version rides the installation-stage events.
             // `Downloading`: stream + digest the archive (one wall-clock budget across all
             // attempts, spec §9).
             writer.set_state(UpdateState::Downloading)?;
-            phases.phase(writer.current());
             let archive = agent_dir.join(format!("update-{update_id}.tar.gz"));
             pa_core::update::download::download_archive(
                 &archive_url,
@@ -112,7 +105,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             .with_context(|| "the release download failed; the installed version was kept")?;
             // `Staged`: extract, validate, and probe the candidate.
             writer.set_state(UpdateState::Staged)?;
-            phases.phase(writer.current());
             let release_dir = pa_core::update::download::stage_archive(
                 &archive,
                 &archive_sha256,
@@ -131,7 +123,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             // `Staged` directly: `plan_direct` already staged the payload;
             // the probe below re-checks the binary's `--version`.
             writer.set_state(UpdateState::Staged)?;
-            phases.phase(writer.current());
             super::swap::validate_candidate(&candidate_dir.join("prime-agent"), &version).await?;
             (candidate_dir.join("prime-agent"), candidate_dir)
         }
@@ -149,7 +140,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             writer.set_state(UpdateState::Skipped)?;
             writer.set_message(Some(reason.clone()))?;
             release(&agent_dir, &socket_path.to_string_lossy())?;
-            track_update_completed(writer.current()).await;
             println!("{reason}");
             // An interactive child reports no-change with the not-attempted
             // code so the client keeps running (TS `setSelfUpdateNoChangeExitCode`).
@@ -164,7 +154,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             writer.set_state(UpdateState::Aborted)?;
             writer.set_message(Some(error.to_string()))?;
             release(&agent_dir, &socket_path.to_string_lossy())?;
-            track_update_completed(writer.current()).await;
             anyhow::bail!("{error:#}");
         }
     };
@@ -204,7 +193,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
         &status_path,
     )?;
     let status = tail_status_with(&status_path, Some(&mut child), &mut |observed, _fresh| {
-        phases.phase(observed);
         if let Some(line) = phase_status_line(observed.state) {
             println!("{line}");
         }
@@ -217,8 +205,6 @@ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
             eprintln!("Warning: could not reap the update coordinator: {error}");
         }
     });
-    phases.finish().await;
-    track_update_completed(&status).await;
     print_terminal(&status);
     Ok(i32::from(status.state != UpdateState::Complete))
 }
@@ -265,8 +251,7 @@ async fn tail_status(status_path: &std::path::Path) -> UpdateStatus {
     tail_status_with(status_path, /*coordinator*/ None, &mut |_, _| {}).await
 }
 
-/// The tail with per-transition observers (§11: the CLI status line and the
-/// `update_<phase>` telemetry derive from the same status-file transitions).
+/// The tail with per-transition observers for CLI status lines.
 async fn tail_status_with(
     status_path: &std::path::Path,
     mut coordinator: Option<&mut std::process::Child>,
@@ -398,25 +383,6 @@ fn phase_status_line(state: UpdateState) -> Option<&'static str> {
         | UpdateState::Failed => None,
     }
 }
-
-/// One `update_<phase>` telemetry event per status-file transition (spec §11: the
-/// invoker owns the emission). Primitives only.
-struct PhaseTelemetry;
-impl PhaseTelemetry {
-    fn open() -> Self {
-        Self
-    }
-    fn phase(&mut self, _status: &UpdateStatus) {}
-    async fn finish(self) {}
-}
-
-/// The installation-stage mapping for one coordinator state (`stage`, `outcome`, optional
-
-/// The §11 telemetry event for one coordinator state (`None` for `Planning`,
-
-/// `update completed`: the adoption event, one per invocation at the terminal status (primitives
-/// only).
-async fn track_update_completed(_status: &UpdateStatus) {}
 
 /// The coordinator mode entry (`--internal-update-restart-coordinator`): the
 /// detached process that adopts the staged status and drives the FSM to a

@@ -382,7 +382,6 @@ pub(crate) struct SessionUi {
     /// submit, patched by `bash_start`/`bash_end`).
     user_bash_running: bool,
     user_bash_card: Option<String>,
-    user_bash_started_at: Option<std::time::Instant>,
     user_bash_counter: u64,
     /// The attached snapshot's bash slot state, consumed by the next
     /// transcript rebuild: a same-session resync runs the `bashFinished` edge off it.
@@ -707,21 +706,17 @@ impl SessionUi {
         outcome: anyhow::Result<Option<String>>,
         view: &mut AgentView,
     ) {
-        let settled = match outcome {
+        match outcome {
             Ok(Some(text)) => {
                 view.editor.set_text(&text);
                 // The saved draft no longer carries the markers the registry describes; clear it
                 // the way submit does (TS keeps the stale registry: the same latent bug).
                 view.editor
                     .restore_paste_snapshot(crate::editor::EditorPasteSnapshot::default());
-                "applied"
             }
-            Ok(None) => "unchanged",
-            Err(error) => {
-                self.error_row(&format!("{error:#}"), view);
-                "failed"
-            }
-        };
+            Ok(None) => {}
+            Err(error) => self.error_row(&format!("{error:#}"), view),
+        }
 
         self.dirty = true;
     }

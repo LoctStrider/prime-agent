@@ -1,6 +1,6 @@
 //! The `SessionEngine` trait impl for [`AgentSessionEngine`]: the
 //! worker-facing engine contract - model and goal config surfaces, the
-//! turn state machine, and the export/telemetry reads.
+//! turn state machine, and session-state reads.
 
 use super::{
     artifact_reference, json, map_thinking_level, now_millis, AgentSessionEngine, Arc,
@@ -629,9 +629,6 @@ impl SessionEngine for AgentSessionEngine {
                 }
             }
             pa_core::session_engine::compact_session::CompactOutcome::Ran(run) => {
-                {
-                    let guard = self.session.blocking_lock();
-                }
                 // The compact-trigger auto-refine review runs after every successful compaction.
                 self.mark_compact_auto_refine_pending();
                 CompactionOutcome::Compacted {

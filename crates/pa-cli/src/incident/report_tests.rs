@@ -64,7 +64,7 @@ fn report_for(lines: &[String]) -> String {
 }
 
 fn report_for_with(lines: &[String], options: &IncidentReportOptions) -> String {
-    build_incident_report(&entries(lines), options).text
+    build_incident_report_with_color(&entries(lines), options, false).text
 }
 
 fn default_options() -> IncidentReportOptions {
@@ -418,7 +418,7 @@ fn the_report_layout_matches_the_ts_shape() {
         "Prime Agent daemon supervisor e14de15c listening on /tmp/prime-agent-501/daemon.sock",
         &json!({}),
     )];
-    let text = build_incident_report(&entries(&lines), &options).text;
+    let text = build_incident_report_with_color(&entries(&lines), &options, false).text;
     let severity = format!("{:<8}", "info");
     let expected = [
         "Prime Agent incident timeline",

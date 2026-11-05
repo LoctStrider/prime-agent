@@ -125,9 +125,6 @@ impl AgentSessionEngine {
                         return BoundaryRun::Cancelled;
                     }
                 }
-                {
-                    let guard = self.session.blocking_lock();
-                }
                 // The run stops on purpose; the worker services the armed review off
                 // the settle (never before the `Done`).
                 self.mark_compact_auto_refine_pending();

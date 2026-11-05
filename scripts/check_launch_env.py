@@ -206,8 +206,7 @@ def run_case(binary, root, observed):
     models['providers']['parity-local']['baseUrl'] = 'http://127.0.0.1:%s/v1' % provider.server_port
     models_path.write_text(json.dumps(models))
     settings = root / 'agent/settings.json'
-    settings.write_text(json.dumps({'prewarmPythonKernel': False, 'onboardingCompleted': True,
-        'telemetry': {'noticeShown': True}, 'defaultProvider': 'parity-local', 'defaultModel': 'parity-1'}))
+    settings.write_text(json.dumps({'prewarmPythonKernel': False, 'onboardingCompleted': True, 'defaultProvider': 'parity-local', 'defaultModel': 'parity-1'}))
     log = open(root / 'daemon.log', 'wb')
     process = subprocess.Popen([str(binary), '--mode', 'daemon', '--daemon-socket', str(root / 'd.sock')],
         cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -219,7 +218,7 @@ def run_case(binary, root, observed):
     prepared_transaction = False
     primary_error = None
     config = {'cwd': str(root), 'agentDir': str(root / 'agent'), 'provider': 'parity-local',
-        'model': 'parity-1', 'noExtensions': True, 'noContextFiles': True, 'telemetryDisabled': True}
+        'model': 'parity-1', 'noExtensions': True, 'noContextFiles': True}
     launch = {'PA_ENV_MARKER': secret, 'PA_ENV_PRECEDENCE': 'client', 'RLM_DEPTH': '9',
               'PRIME_AGENT_INTERNAL_PARITY_CANARY': 'must-not-inherit'}
     def create(name, lifecycle, forwarded):

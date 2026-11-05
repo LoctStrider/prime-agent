@@ -61,12 +61,6 @@ impl pa_tui::interactive::OnboardingSink for SettingsOnboardingSink {
         pa_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
             .set_onboarding_shown(true)
     }
-    fn onboarding_incomplete(
-        &self,
-        _outcome: &'static str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async {})
-    }
 }
 pub(super) fn onboarding_task(
     options: &RunOptions,

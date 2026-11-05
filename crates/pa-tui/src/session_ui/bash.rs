@@ -459,7 +459,6 @@ impl SessionUi {
                 ));
             }
             self.user_bash_card = None;
-            self.user_bash_started_at = None;
             return;
         }
         // The main-thread card. While the agent streams it holds above the
@@ -475,7 +474,6 @@ impl SessionUi {
             view.push_entry(ChatEntry::BashExecution(Box::new(card)));
         }
         self.user_bash_card = Some(id);
-        self.user_bash_started_at = Some(std::time::Instant::now());
     }
 
     /// `bash_output`: one streamed chunk appends to the active surface — the
@@ -576,7 +574,6 @@ impl SessionUi {
         }
         // The mounted card settles wherever the run mounted — the pending hold
         // keeps its place until the turn flushes.
-        let started_at = self.user_bash_started_at.take();
         if let Some(card_id) = self.user_bash_card.take() {
             let mut settled = false;
             if let Some(index) = view.chat.iter().position(
@@ -623,9 +620,6 @@ impl SessionUi {
             view.push_entry(ChatEntry::BashExecution(Box::new(card)));
         }
     }
-
-    /// `tui bash bang executed` telemetry: a duration bucket and an exit-code
-    /// class, primitives only — never the command or any output.
 
     /// `abort_bash` off the UI loop: the request never blocks key handling,
     /// and a failure surfaces as a background note.

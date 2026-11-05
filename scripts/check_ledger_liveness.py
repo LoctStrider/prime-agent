@@ -290,7 +290,7 @@ def run_case(binary, root, observed):
     (root / 'agent/models.json').write_text(json.dumps(models))
     (root / 'agent/settings.json').write_text(json.dumps({'prewarmPythonKernel': False,
         'defaultProvider': 'parity-local', 'defaultModel': 'parity-1',
-        'onboardingCompleted': True, 'telemetry': {'noticeShown': True}}))
+        'onboardingCompleted': True}))
     process, client = None, None
     log_path = root / 'daemon.log'
     try:
@@ -300,8 +300,7 @@ def run_case(binary, root, observed):
                 cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             client = Client(path, process)
             config = {'cwd': str(root), 'agentDir': str(root / 'agent'), 'provider': 'parity-local',
-                      'model': 'parity-1', 'noExtensions': True, 'noContextFiles': True,
-                      'telemetryDisabled': True}
+                      'model': 'parity-1', 'noExtensions': True, 'noContextFiles': True}
             created = client.call('create', name='ledger-fixture-parent', config=config)
             observed['created'] = created
             active = created.get('activeSessionId') or created.get('id')

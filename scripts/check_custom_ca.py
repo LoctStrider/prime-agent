@@ -171,7 +171,7 @@ def run_case(binary, root, trusted, key, cert, ca_cert, unrelated, observation):
     agent, sessions, cwd = root / 'agent', root / 'sessions', root / 'work'
     env = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL', 'TZ',
            'PRIME_AGENT_KERNEL_PYTHON', 'PA_E2E_KERNEL_PYTHON') if key in os.environ}
-    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'), DO_NOT_TRACK='1',
+    env.update(HOME=str(root / 'home'), TMPDIR=str(root / 'tmp'),
                PI_OFFLINE='1', PI_CODING_AGENT_DIR=str(agent), PRIME_AGENT_CODING_AGENT_DIR=str(agent),
                PI_SESSION_DIR=str(sessions), PRIME_AGENT_SESSION_DIR=str(sessions),
                XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'),
@@ -202,7 +202,7 @@ def run_case(binary, root, trusted, key, cert, ca_cert, unrelated, observation):
         created = client.call('create', name='custom-ca-fixture', config={
             'cwd': str(cwd), 'agentDir': str(agent), 'sessionDir': str(sessions),
             'provider': 'fixture', 'model': 'ca-fixture', 'noExtensions': True,
-            'noSkills': True, 'noTools': True, 'noContextFiles': True, 'telemetryDisabled': True})
+            'noSkills': True, 'noTools': True, 'noContextFiles': True})
         active = created.get('activeSessionId') or created.get('id')
         assert active, created
         client.call('attach', activeSessionId=active)

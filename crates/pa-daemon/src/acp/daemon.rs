@@ -1583,9 +1583,9 @@ async fn prompt_turn(
         .publish(&quiescence, turn_id, PrimeAgentEventPhase::Event, None)
         .await;
     // The settlement loop (TS `finalizePendingTerminal`): the barrier is
-    // the event, no timer, and the roster re-read is the response-cut
-    // telemetry (a child can publish a terminal status before its result
-    // reaches the parent). A failed barrier or read errors the prompt; a
+    // the event, no timer, and the roster re-read ensures terminal status
+    // is observed before the response returns (a child can publish a status
+    // before its result reaches the parent). A failed barrier or read errors the prompt;
     // degraded status would spin the loop.
     let settled_status = loop {
         let status = match fetch_autonomous_status(link, &hosted_daemon_session_id, true).await {

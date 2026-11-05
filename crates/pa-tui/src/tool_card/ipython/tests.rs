@@ -477,14 +477,6 @@ fn bash_dominated_cell_renders_as_bash() {
         text_of(&lines[0]),
         " \u{2713} bash \u{00b7} cargo test -p pa-tui \u{00b7} +2 more \u{00b7} \u{2191} 5 \u{2193} 1 lines \u{00b7} 2ms"
     );
-    assert_eq!(
-        bash_dominated_stats(&card),
-        Some(BashCellStats {
-            bash_lines: 4,
-            cell_lines: 5,
-            count: 3,
-        })
-    );
 }
 
 #[test]
@@ -556,7 +548,6 @@ fn bash_minority_cell_stays_python() {
         text_of(&lines[0]),
         " \u{2713} python \u{00b7} r = await sh(\"ls\") \u{00b7} \u{2191} 4 \u{2193} 1 lines \u{00b7} 5ms"
     );
-    assert_eq!(bash_dominated_stats(&card), None);
 }
 
 fn edit_cell_card() -> ToolCallCard {

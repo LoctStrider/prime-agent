@@ -73,9 +73,6 @@ impl TurnBoundary {
             .await
         {
             Some(Ok(CompactOutcome::Ran(run))) => {
-                // Adoption telemetry: every completed compaction counts
-                // into the active run.
-
                 // Every successful compaction schedules the compact-trigger
                 // auto-refine for the next checkpoint (or the disposal drain).
                 self.compact_auto_refine_pending = true;

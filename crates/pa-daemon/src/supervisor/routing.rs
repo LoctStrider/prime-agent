@@ -1102,7 +1102,7 @@ impl Supervisor {
             std::path::Path::new(&session_file),
             &live,
         );
-        self.capture_deleted_child_usage(&session_file, &child_id, "rlm_delete")
+        self.capture_deleted_child_usage(&session_file, &child_id)
             .await;
         crate::saved_session_commands::remove_session_artifacts(std::path::Path::new(
             &session_file,

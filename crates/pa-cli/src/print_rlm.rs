@@ -820,7 +820,6 @@ impl RlmSubagentHost for InlineHost {
                 &recipe.options,
                 recipe.faux.as_ref(),
                 Some(child_manager),
-                "subagent",
                 &HeadlessEmbedding::Child(Box::new(overrides)),
             )
             .await
@@ -1493,7 +1492,6 @@ mod tests {
             &options,
             Some(&script),
             Some(manager),
-            "print",
             &HeadlessEmbedding::Root {
                 node: Arc::clone(&node),
             },
@@ -1565,7 +1563,6 @@ mod tests {
             &options,
             Some(&script),
             Some(manager),
-            "print",
             &HeadlessEmbedding::Root {
                 node: Arc::clone(&node),
             },

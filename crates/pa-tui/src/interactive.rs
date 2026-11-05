@@ -115,13 +115,6 @@ pub struct SelectionOrigin {
     pub closes_to_agents_view: bool,
 }
 
-/// Cap on the exit-path telemetry flush (the `tui exit` event's bound):
-/// the analytics sink alone allows up to 1.5s, so an exit-path event is
-/// dropped rather than awaited past the exit-within-1s contract. The
-/// interactive loop and the composition root's exit paths share this one
-/// bound.
-pub const TELEMETRY_EXIT_TIMEOUT_MS: u64 = 500;
-
 /// The kernel activity poll cadence: the session's shells/factory refresh and the agents view's
 /// activity-line counts and persistent shells list.
 pub(crate) const ACTIVITY_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -138,8 +131,7 @@ pub struct ModelSelection {
     pub thinking: Option<pa_types::ai::ModelThinkingLevel>,
 }
 
-/// Options for one interactive run. `Debug` skips the telemetry handle (the trait object is not
-/// `Debug`).
+/// Options for one interactive run.
 #[derive(Clone)]
 pub struct InteractiveOptions {
     pub socket_path: PathBuf,
@@ -254,7 +246,6 @@ impl InteractiveOptions {
     pub fn create_config(&self) -> Value {
         let mut config = json!({
             "cwd": self.cwd.display().to_string(),
-            "executionMode": "interactive",
         });
         if let Some(session_dir) = &self.session_dir {
             config["sessionDir"] = json!(session_dir.display().to_string());

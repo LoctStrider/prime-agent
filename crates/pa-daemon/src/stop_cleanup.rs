@@ -357,12 +357,8 @@ impl Supervisor {
                 // The durable usage capture: the kill reply was the flush barrier, so the
                 // frozen transcript holds the child's final own spend. Capture it BEFORE
                 // the sweep; a failed capture never fails the stop.
-                self.capture_deleted_child_usage(
-                    &root_session_file,
-                    &deleted.child_id,
-                    "rlm_delete",
-                )
-                .await;
+                self.capture_deleted_child_usage(&root_session_file, &deleted.child_id)
+                    .await;
                 crate::saved_session_commands::remove_session_artifacts(Path::new(
                     &root_session_file,
                 ));
@@ -372,7 +368,7 @@ impl Supervisor {
                 // between the ledger tombstone and this sweep leaves the capture undone;
                 // the durable tombstone reconstructs the delete — the capture and sweep finish.
                 if let Some(child_id) = self.tombstoned_child_at(&root_session_file).await {
-                    self.capture_deleted_child_usage(&root_session_file, &child_id, "adoption")
+                    self.capture_deleted_child_usage(&root_session_file, &child_id)
                         .await;
                     crate::saved_session_commands::remove_session_artifacts(Path::new(
                         &root_session_file,
@@ -406,7 +402,6 @@ impl Supervisor {
         self: &Arc<Self>,
         session_file: &str,
         child_id: &str,
-        source: &'static str,
     ) {
         let Ok(ledger) = self.rlm_spawn_ledger_for(None).await else {
             self.log_line("deleted-child capture: could not resolve the spawn ledger");
@@ -416,11 +411,10 @@ impl Supervisor {
         // that must not stall an async runtime worker, so it runs on the blocking executor.
         let session_file = session_file.to_string();
         let child_id = child_id.to_string();
-        let captured = tokio::task::spawn_blocking(move || {
+        let _ = tokio::task::spawn_blocking(move || {
             append_deleted_child_usage_amendments(&ledger, &session_file, &child_id)
         })
-        .await
-        .unwrap_or(None);
+        .await;
     }
 
     /// The ephemeral stop's schedule cancel: a client-owned worker's schedules die with

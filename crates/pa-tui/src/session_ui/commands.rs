@@ -840,9 +840,6 @@ impl SessionUi {
         }
     }
 
-    /// Report a menu surface opening (`tui menu opened`), fire-and-forget;
-    /// `menu` names the surface, `source` how it opened.
-
     /// Fetch the session's slash-command catalog in the background: the response carries the
     /// `skill:` commands; a fetch races a rebind silently — the epoch drops the stale response.
     pub(crate) fn spawn_command_catalog_refresh(&mut self) {

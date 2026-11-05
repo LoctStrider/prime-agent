@@ -1,5 +1,5 @@
 //! The streamed-event pump: client events, turn updates, assistant/tool
-//! rows, compaction aborts, and the telemetry seams.
+//! rows and compaction aborts.
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
     CompactionReason, CompactionState, DaemonClientEvent, DaemonCommand, Map, MessageBlock, Result,
@@ -820,11 +820,6 @@ impl SessionUi {
         }
         false
     }
-
-    /// Count live timer starts with the session's other interaction counters.
-
-    /// `tui ipython bash rendered`: the settled ipython card that renders
-    /// as bash reports its bash share, primitives only.
 
     /// Update the loader activity label (agent-activity tracker subset).
     fn set_working_activity(activity: &'static str, download: bool, view: &mut AgentView) {

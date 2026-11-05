@@ -143,7 +143,7 @@ def launch(binary, root, socket_path, shared_tmp, provider, trees):
                     'contextWindow': 128000, 'maxTokens': 4096}]}}}))
     (root / 'agent/settings.json').write_text(json.dumps({'prewarmPythonKernel': False,
         'defaultProvider': 'parity-local', 'defaultModel': 'parity-1',
-        'onboardingCompleted': True, 'telemetry': {'noticeShown': True}}))
+        'onboardingCompleted': True}))
     log = open(root / 'daemon.log', 'wb')
     process = subprocess.Popen([str(binary), '--mode', 'daemon', '--daemon-socket', str(socket_path)],
         cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -152,7 +152,7 @@ def launch(binary, root, socket_path, shared_tmp, provider, trees):
     client = tree['client'] = Client(socket_path, process)
     created = client.call('create', config={'cwd': str(root), 'agentDir': str(root / 'agent'),
         'provider': 'parity-local', 'model': 'parity-1', 'noExtensions': True,
-        'noSkills': True, 'noTools': True, 'noContextFiles': True, 'telemetryDisabled': True})
+        'noSkills': True, 'noTools': True, 'noContextFiles': True})
     active = created.get('activeSessionId') or created.get('id')
     worker_pid = created.get('workerPid')
     assert isinstance(worker_pid, int), 'create did not identify its worker'

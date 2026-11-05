@@ -94,8 +94,7 @@ def observe(binary, root, case, receipt):
             created = client.call('create', config={
                 'cwd': str(root), 'agentDir': str(root / 'agent'),
                 'sessionDir': str(root / 'agent/sessions'),
-                'provider': 'prime-inference', 'model': 'parity-1',
-                'telemetryDisabled': True, 'noExtensions': True, 'noContextFiles': True})
+                'provider': 'prime-inference', 'model': 'parity-1', 'noExtensions': True, 'noContextFiles': True})
             active = created.get('activeSessionId') or created.get('id')
             assert active, created
             try:

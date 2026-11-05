@@ -96,8 +96,7 @@ def setup(root, provider):
                     'reasoning': False, 'contextWindow': 128000, 'maxTokens': 4096}]}}}))
     (root / 'agent/settings.json').write_text(json.dumps({'defaultProvider': 'parity-local',
         'defaultModel': 'parity-1', 'prewarmPythonKernel': False,
-        'onboardingCompleted': True, 'onboardingShown': True,
-        'telemetry': {'noticeShown': True}}))
+        'onboardingCompleted': True, 'onboardingShown': True}))
     return env
 
 

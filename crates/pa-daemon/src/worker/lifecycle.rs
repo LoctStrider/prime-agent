@@ -61,7 +61,7 @@ impl Worker {
     }
 
     /// Graceful stop: the connection loop exits the process after
-    /// replying. The session's telemetry finalizes first.
+    /// replying after the session's recovery state is persisted.
     pub(crate) async fn handle_shutdown(&self, payload: &Value) -> DaemonResponse {
         let daemon_wide = payload.get("daemonShutdown").and_then(Value::as_bool) == Some(true);
         // The session is closing: the continuation mint sites and their

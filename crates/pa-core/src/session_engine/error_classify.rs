@@ -1,75 +1,5 @@
-//! The #2117 error classifier: a failed model call's message becomes a
-//! fixed (category, subtype, code, `http_status`) tuple plus a fixed
-//! diagnostic; raw provider text never uploads. Order: a bounded HTTP
-//! status, then a safe error code, then the reviewed fixed-string set.
-
-/// The fixed diagnostic messages per subtype (#2117 `TELEMETRY_ERROR_MESSAGES`):
-/// the only error descriptions eligible for upload.
-pub const ERROR_DIAGNOSTICS: &[(&str, &str)] = &[
-    ("credential_missing", "No API key found for [provider]."),
-    (
-        "credential_invalid",
-        "Provider rejected the supplied credentials.",
-    ),
-    ("credential_expired", "Provider credentials have expired."),
-    (
-        "authentication_rejected",
-        "Provider rejected authentication; the underlying reason is unknown.",
-    ),
-    (
-        "permission_denied",
-        "Provider denied access to the requested resource.",
-    ),
-    (
-        "model_access_denied",
-        "The selected model is not accessible.",
-    ),
-    (
-        "insufficient_balance",
-        "The provider reported insufficient balance.",
-    ),
-    (
-        "quota_exceeded",
-        "The provider reported an exhausted quota.",
-    ),
-    ("rate_limited", "Provider rate limit exceeded."),
-    ("network_error", "A network connection failed."),
-    ("timeout", "The operation timed out."),
-    (
-        "provider_unavailable",
-        "The provider is temporarily unavailable.",
-    ),
-    (
-        "refusal",
-        "The provider refused the request or blocked the response.",
-    ),
-    (
-        "malformed_response",
-        "Provider returned a malformed response.",
-    ),
-    (
-        "stream_drop",
-        "The provider ended the response stream without a stop signal.",
-    ),
-    (
-        "context_limit",
-        "The request exceeded the model context limit.",
-    ),
-    (
-        "configuration_error",
-        "The application could not load or use its configuration.",
-    ),
-    ("filesystem_error", "A local file operation failed."),
-    (
-        "session_unavailable",
-        "The requested session is unavailable.",
-    ),
-    ("cancelled", "Request was aborted."),
-    (
-        "unknown",
-        "An error occurred; private error details were omitted.",
-    ),
-];
+//! Classify a failed model call into a fixed category, subtype, code, and
+//! HTTP status, with reviewed diagnostics kept separate from raw provider text.
 
 /// The fixed provider transport disclosures pa-ai emits when the turn's
 /// auto-retries exhaust (`ProviderConnectionError::message` and the
@@ -95,8 +25,7 @@ const TRANSPORT_DISCLOSURES: &[(&str, &str)] = &[
     ("The pending stream has been canceled", "network_error"),
 ];
 
-/// The reviewed fixed-string error messages (#2117
-/// `TELEMETRY_SAFE_ERROR_MESSAGES`): an exact match may ride as `error_message`.
+/// Reviewed fixed-string error messages that may be retained as safe messages.
 const REVIEWED_MESSAGES: &[(&str, &str)] = &[
     ("cancelled", "Request was aborted"),
     ("cancelled", "The operation was aborted."),
@@ -199,51 +128,21 @@ fn subtype_category(subtype: &str) -> &'static str {
     }
 }
 
-/// Whether the subtype's failures are retryable by the auto-retry policy
-/// (the classifier's static verdict).
-fn subtype_retryable(subtype: &str) -> bool {
-    matches!(
-        subtype,
-        "quota_exceeded"
-            | "rate_limited"
-            | "network_error"
-            | "stream_drop"
-            | "timeout"
-            | "provider_unavailable"
-            | "malformed_response"
-            | "insufficient_balance"
-    )
-}
-
 /// One failed call's classification. No raw message text is carried.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ErrorClassification {
-    /// The fixed diagnostic for the subtype.
-    pub diagnostic: &'static str,
-    /// The reviewed fixed-string message, when the raw text matched one
-    /// exactly (the only message text eligible for upload).
-    pub safe_message: Option<(&'static str, &'static str)>,
     /// `category` is the legacy `error_category` vocabulary.
     pub category: &'static str,
     pub subtype: &'static str,
-    /// The recognized safe error code, when one named the subtype.
-    pub code: Option<&'static str>,
     /// A bounded HTTP status observed in the text.
     pub http_status: Option<u64>,
-    /// How the classification was reached.
-    pub classification_source: &'static str,
-    /// The static retryability verdict for the subtype.
-    pub retryable: bool,
 }
 
 impl ErrorClassification {
     /// The nano-rlm #200 ACP-boundary view: only the exhausted model
     /// connection family is `model_transport` (the one class a host may
-    /// re-prompt on). HTTP status errors keep their provider categories —
-    /// a host retry is a fresh prompt, not an idempotent replay, so
-    /// `retryable` verdicts from the auto-retry policy (rate limits,
-    /// quota, balance, malformed responses) do not transfer to the
-    /// boundary.
+    /// re-prompt on). HTTP status errors keep their provider categories:
+    /// a host retry is a fresh prompt, not an idempotent replay.
     #[must_use]
     pub fn is_model_transport(&self) -> bool {
         // An HTTP-status classification (a 408 reads as `timeout`) is a
@@ -254,19 +153,9 @@ impl ErrorClassification {
     }
 }
 
-/// Classify one failed call's error message. The message itself never
-/// uploads: only the fixed tuples, the diagnostic, and a reviewed string.
+/// Classify one failed call's error message without exposing raw provider text.
 #[must_use]
 pub fn classify_error_message(message: &str) -> ErrorClassification {
-    let diagnostic = |subtype: &str| {
-        ERROR_DIAGNOSTICS
-            .iter()
-            .find(|(known, _)| *known == subtype)
-            .map_or(
-                "An error occurred; private error details were omitted.",
-                |(_, diagnostic)| *diagnostic,
-            )
-    };
     // 1. A bounded HTTP status is the strongest structured evidence.
     if let Some(status) = bounded_http_status(message) {
         let subtype = match status {
@@ -280,33 +169,23 @@ pub fn classify_error_message(message: &str) -> ErrorClassification {
             _ => "unknown",
         };
         return ErrorClassification {
-            diagnostic: diagnostic(subtype),
-            safe_message: None,
             category: subtype_category(subtype),
             subtype,
-            code: None,
             http_status: Some(status),
-            classification_source: "http_status",
-            retryable: subtype_retryable(subtype),
         };
     }
     // 2. A recognized safe error code token names the subtype. The match
     // runs case-insensitively in both directions; the code keeps its
     // canonical spelling.
     let lowered = message.to_ascii_lowercase();
-    if let Some((code, subtype)) = CODE_SUBTYPES.iter().find(|(code, _)| {
+    if let Some((_, subtype)) = CODE_SUBTYPES.iter().find(|(code, _)| {
         let lowered_code = code.to_ascii_lowercase();
         lowered.contains(&lowered_code) || message.contains(*code)
     }) {
         return ErrorClassification {
-            diagnostic: diagnostic(subtype),
-            safe_message: None,
             category: subtype_category(subtype),
             subtype,
-            code: Some(code),
             http_status: None,
-            classification_source: "typed_error",
-            retryable: subtype_retryable(subtype),
         };
     }
     // 3. A fixed provider transport disclosure (prefix match): the
@@ -318,43 +197,27 @@ pub fn classify_error_message(message: &str) -> ErrorClassification {
         .find(|(disclosure, _)| message.starts_with(disclosure))
     {
         return ErrorClassification {
-            diagnostic: diagnostic(subtype),
-            safe_message: None,
             category: subtype_category(subtype),
             subtype,
-            code: None,
             http_status: None,
-            classification_source: "transport_disclosure",
-            retryable: subtype_retryable(subtype),
         };
     }
-    // 4. A reviewed fixed-string message (exact match, the only text that
-    // may upload).
-    if let Some((subtype, reviewed)) = REVIEWED_MESSAGES
+    // 4. A reviewed fixed-string message (exact match).
+    if let Some((subtype, _)) = REVIEWED_MESSAGES
         .iter()
         .find(|(_, reviewed)| reviewed == &message)
     {
         return ErrorClassification {
-            diagnostic: diagnostic(subtype),
-            safe_message: Some(("reviewed_literal", reviewed)),
             category: subtype_category(subtype),
             subtype,
-            code: None,
             http_status: None,
-            classification_source: "reviewed_message",
-            retryable: subtype_retryable(subtype),
         };
     }
-    // 5. Unmatched: the generic diagnostic; the raw text never uploads.
+    // 5. An unmatched message receives the generic category.
     ErrorClassification {
-        diagnostic: diagnostic("unknown"),
-        safe_message: None,
         category: "other",
         subtype: "unknown",
-        code: None,
         http_status: None,
-        classification_source: "unknown",
-        retryable: false,
     }
 }
 
@@ -398,10 +261,6 @@ mod tests {
         assert_eq!(classification.subtype, "rate_limited");
         assert_eq!(classification.http_status, Some(429));
         assert_eq!(classification.category, "rate_limit");
-        assert_eq!(classification.classification_source, "http_status");
-        assert!(classification.retryable);
-        assert!(classification.safe_message.is_none());
-        assert!(!classification.diagnostic.contains("API Error"));
     }
 
     #[test]
@@ -416,12 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn safe_codes_classify_without_uploading_text() {
+    fn safe_codes_classify_without_carrying_raw_text() {
         let classification = classify("ECONNRESET while streaming: user-secret-token");
         assert_eq!(classification.subtype, "network_error");
-        assert_eq!(classification.code, Some("ECONNRESET"));
         assert_eq!(classification.category, "network");
-        assert_eq!(classification.classification_source, "typed_error");
     }
 
     #[test]
@@ -431,25 +288,17 @@ mod tests {
             classification.subtype, "network_error",
             "the lowercase errno still names the typed subtype"
         );
-        assert_eq!(classification.code, Some("ECONNRESET"));
     }
 
     #[test]
-    fn reviewed_literals_are_the_only_uploaded_text() {
+    fn reviewed_literals_match_exactly() {
         let classification = classify("Provider rate limit exceeded");
         assert_eq!(classification.subtype, "rate_limited");
-        assert_eq!(classification.classification_source, "reviewed_message");
-        assert_eq!(
-            classification.safe_message,
-            Some(("reviewed_literal", "Provider rate limit exceeded"))
-        );
         // The abort literal's subtype is the catalog vocabulary
         // (`cancelled`, never a message id that sanitize would rewrite).
         let aborted = classify("Request was aborted");
         assert_eq!(aborted.subtype, "cancelled");
         let near_miss = classify("Provider rate limit exceeded for model glm-4.6");
-        assert!(near_miss.safe_message.is_none());
-        assert_eq!(near_miss.classification_source, "unknown");
         assert_eq!(near_miss.subtype, "unknown");
     }
 
@@ -462,34 +311,19 @@ mod tests {
         );
         assert_eq!(classification.subtype, "stream_drop");
         assert_eq!(classification.category, "network");
-        assert_eq!(classification.code, Some("stream_drop"));
-        assert_eq!(classification.classification_source, "typed_error");
-        assert!(classification.retryable);
         // The raw message never uploads; the fixed diagnostic rides.
-        assert!(classification.safe_message.is_none());
-        assert_eq!(
-            classification.diagnostic,
-            "The provider ended the response stream without a stop signal."
-        );
         // The empty-stream variant classifies identically.
         let empty = classify(
             "Provider dropped the response stream (stream_drop): the stream ended before any response content or stop signal"
         );
         assert_eq!(empty.subtype, "stream_drop");
-        assert!(empty.retryable);
     }
 
     #[test]
-    fn unmatched_messages_get_the_generic_diagnostic() {
+    fn unmatched_messages_get_the_unknown_category() {
         let classification = classify("Provider exploded with secret details about /home/user");
         assert_eq!(classification.subtype, "unknown");
         assert_eq!(classification.category, "other");
-        assert!(!classification.retryable);
-        assert_eq!(
-            classification.diagnostic,
-            "An error occurred; private error details were omitted."
-        );
-        assert!(classification.safe_message.is_none());
     }
 
     #[test]
@@ -497,7 +331,6 @@ mod tests {
         let auth = classify("invalid_api_key");
         assert_eq!(auth.subtype, "credential_invalid");
         assert_eq!(auth.category, "authentication");
-        assert!(!auth.retryable);
         let billing = classify("402");
         assert_eq!(billing.subtype, "insufficient_balance");
         assert_eq!(billing.category, "other");
@@ -524,7 +357,6 @@ mod tests {
         for (message, subtype) in cases {
             let classification = classify(message);
             assert_eq!(classification.subtype, subtype, "{message}");
-            assert_eq!(classification.classification_source, "transport_disclosure");
             assert!(classification.is_model_transport(), "{message}");
         }
         // A disclosure embedded mid-message is not evidence: only the
@@ -556,13 +388,5 @@ mod tests {
         }
         // The SDK timeout disclosure (no status) is the transport family.
         assert!(classify("Request timed out.").is_model_transport());
-    }
-
-    #[test]
-    fn every_subtype_has_a_diagnostic() {
-        for (subtype, diagnostic) in ERROR_DIAGNOSTICS {
-            assert!(!diagnostic.is_empty(), "{subtype}");
-            assert!(!diagnostic.contains('{'), "{subtype}: no templating");
-        }
     }
 }

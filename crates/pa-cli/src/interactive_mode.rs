@@ -24,9 +24,6 @@ mod onboarding;
 
 use onboarding::onboarding_task;
 #[cfg(test)]
-use onboarding::{SettingsOnboardingSink, StartupModelProbe};
-
-#[cfg(test)]
 mod tests;
 
 /// Run the interactive TUI attached to the daemon. Returns the exit code.

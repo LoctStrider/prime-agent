@@ -53,7 +53,7 @@ def observe(binary, root, observed):
         scope.register(daemon, command)
         control = Client(path, daemon)
         created = control.call('create', config={'cwd': str(root), 'agentDir': str(root / 'agent'),
-            'provider': 'parity-local', 'model': 'parity-1', 'telemetryDisabled': True})
+            'provider': 'parity-local', 'model': 'parity-1'})
         active = created.get('activeSessionId') or created.get('id')
         assert active, created
         control.call('attach', activeSessionId=active)
