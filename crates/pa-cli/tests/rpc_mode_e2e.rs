@@ -22,6 +22,31 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[test]
+fn file_arguments_report_the_selected_headless_mode() {
+    for (mode, message) in [
+        (
+            "rpc",
+            "@file arguments are not supported in RPC or daemon mode",
+        ),
+        (
+            "daemon",
+            "@file arguments are not supported in RPC or daemon mode",
+        ),
+        ("acp", "@file arguments are not supported in ACP mode"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_prime-agent"))
+            .args(["--mode", mode, "@file.txt"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!("Error: {message}\n")
+        );
+    }
+}
+
 /// The child plus the tempdir it runs in (it must outlive the child's cwd).
 struct RpcChild {
     child: Child,

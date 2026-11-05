@@ -83,6 +83,15 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
     }
 }
 
+// TS takes over stdout after public-command routing in non-interactive modes.
+pub(crate) fn print_cli_information(app_mode: AppMode, message: &str) {
+    if app_mode == AppMode::Interactive {
+        println!("{message}");
+    } else {
+        eprintln!("{message}");
+    }
+}
+
 fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String> {
     use std::io::IsTerminal;
 
@@ -145,18 +154,18 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     if parsed.version {
-        println!("{}", crate::config::version());
+        print_cli_information(app_mode, crate::config::version());
         return Ok(0);
     }
     if parsed.help {
-        println!("{}", command_registry::format_top_level_help());
+        print_cli_information(app_mode, &command_registry::format_top_level_help());
         return Ok(0);
     }
 
     if parsed.export.is_some() {
         // The TS product only reaches the export subsystem through the `session
         // export <file> [output]` rewrite (a standalone `--export` exits above).
-        return session_export::run(&parsed, &crate::config::get_agent_dir());
+        return session_export::run(&parsed, &crate::config::get_agent_dir(), app_mode);
     }
 
     if matches!(
@@ -164,7 +173,11 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         Some(args::Mode::Rpc | args::Mode::Daemon | args::Mode::Acp)
     ) && !parsed.file_args.is_empty()
     {
-        return Err("@file arguments are not supported in RPC, daemon, or ACP mode".to_string());
+        return Err(if parsed.mode == Some(args::Mode::Acp) {
+            "@file arguments are not supported in ACP mode".to_string()
+        } else {
+            "@file arguments are not supported in RPC or daemon mode".to_string()
+        });
     }
 
     // Daemon worker processes start with the worker role env var set: route

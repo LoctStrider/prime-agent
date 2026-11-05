@@ -194,9 +194,15 @@ fn parse_positive_u32(value: &str, flag: &str, diagnostics: &mut Vec<Diagnostic>
     // u32::MAX is a user error, never a silent truncation.
     match value.trim().parse::<i128>() {
         Ok(parsed) if parsed > 0 && parsed <= i128::from(u32::MAX) => u32::try_from(parsed).ok(),
-        _ => {
+        Ok(parsed) if parsed > i128::from(u32::MAX) => {
             diagnostics.push(Diagnostic::error(format!(
                 "{flag} must be a positive integer between 1 and u32::MAX (4294967295)"
+            )));
+            None
+        }
+        _ => {
+            diagnostics.push(Diagnostic::error(format!(
+                "{flag} must be a positive integer"
             )));
             None
         }
@@ -587,12 +593,12 @@ mod tests {
         let parsed = parse(&["--autonomous-max-turns", "0"]);
         assert_eq!(
             last_error(&parsed),
-            "--autonomous-max-turns must be a positive integer between 1 and u32::MAX (4294967295)"
+            "--autonomous-max-turns must be a positive integer"
         );
         let parsed = parse(&["--autonomous-max-turns", "abc"]);
         assert_eq!(
             last_error(&parsed),
-            "--autonomous-max-turns must be a positive integer between 1 and u32::MAX (4294967295)"
+            "--autonomous-max-turns must be a positive integer"
         );
     }
 

@@ -23,7 +23,7 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
     }
     let models = registry.refresh_available_models().await;
     if models.is_empty() {
-        println!("{}", no_models_available_message());
+        crate::print_cli_information(options.app_mode, &no_models_available_message());
         return Ok(0);
     }
     let search = options.list_models.clone().flatten();
@@ -34,7 +34,10 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
                     format!("{} {}", model.provider, model.id)
                 });
             if matched.is_empty() {
-                println!("No models matching \"{pattern}\"");
+                crate::print_cli_information(
+                    options.app_mode,
+                    &format!("No models matching \"{pattern}\""),
+                );
                 return Ok(0);
             }
             matched
@@ -42,7 +45,7 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
         None => models,
     };
     filtered.sort_by(|a, b| a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id)));
-    print_table(&filtered);
+    print_table(options.app_mode, &filtered);
     Ok(0)
 }
 
@@ -122,7 +125,7 @@ fn format_token_count(count: u64) -> String {
 
 /// The catalog table: fixed headers, two-space gutters, and every
 /// column padded to its widest value (trailing padding included).
-fn print_table(models: &[pa_types::ai::Model]) {
+fn print_table(app_mode: crate::AppMode, models: &[pa_types::ai::Model]) {
     const HEADERS: [&str; 6] = [
         "provider", "model", "context", "max-out", "thinking", "images",
     ];
@@ -144,9 +147,9 @@ fn print_table(models: &[pa_types::ai::Model]) {
             .collect::<Vec<_>>()
             .join("  ")
     };
-    println!("{}", line(HEADERS));
+    crate::print_cli_information(app_mode, &line(HEADERS));
     for row in &rows {
-        println!("{}", line(row.cells()));
+        crate::print_cli_information(app_mode, &line(row.cells()));
     }
 }
 

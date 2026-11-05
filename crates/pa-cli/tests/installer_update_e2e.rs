@@ -725,3 +725,30 @@ fn make_executable(path: &Path) {
     permissions.set_mode(permissions.mode() | 0o755);
     std::fs::set_permissions(path, permissions).expect("chmod");
 }
+
+#[test]
+fn legacy_update_targets_preserve_migration_guidance() {
+    let self_message =
+        "Error: An update target is no longer needed.\nUse \"prime-agent update [--force]\".\n";
+    let package_message = "Error: Package updates moved to the package command.\nUse \"prime-agent package update [source]\".\n";
+    let combined_message = "Error: Prime Agent and package updates are now separate.\nRun \"prime-agent update [--force]\" and \"prime-agent package update [source]\" separately.\n";
+    for (args, expected) in [
+        (vec!["--self"], self_message),
+        (vec!["package"], package_message),
+        (vec!["--extensions"], package_message),
+        (vec!["--self", "package"], combined_message),
+        (vec!["self", "pkg"], combined_message),
+        (vec!["--force", "--self"], self_message),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_prime-agent"))
+            .arg("update")
+            .args(&args)
+            .output()
+            .expect("run prime-agent");
+        assert_eq!(
+            (output.status.code(), output.stdout, output.stderr),
+            (Some(1), Vec::<u8>::new(), expected.as_bytes().to_vec()),
+            "update {args:?}"
+        );
+    }
+}

@@ -336,6 +336,44 @@ fn validate_schedule_args(args: &[String]) -> bool {
 /// Returns `None` on a usage failure
 /// (already reported).
 fn parse_update_options(args: &[String]) -> Option<crate::self_update::SelfUpdateOptions> {
+    let mut has_self = false;
+    let mut has_package = false;
+    let mut targets = args.iter().peekable();
+    while let Some(arg) = targets.next() {
+        // Direct-install operands are values, not legacy update targets.
+        if matches!(arg.as_str(), "--archive" | "--source") {
+            if targets.peek().is_some_and(|value| !value.starts_with('-')) {
+                targets.next();
+            }
+            continue;
+        }
+        has_self |= arg == "--self" || is_self_update_source(arg);
+        has_package |= matches!(arg.as_str(), "--extensions" | "--extension")
+            || (!arg.starts_with('-') && !is_self_update_source(arg));
+    }
+    if has_self && has_package {
+        fail(
+            "Prime Agent and package updates are now separate.",
+            Some(format!(
+                "Run \"{APP_NAME} update [--force]\" and \"{APP_NAME} package update [source]\" separately."
+            )),
+        );
+        return None;
+    }
+    if has_self {
+        fail(
+            "An update target is no longer needed.",
+            Some(format!("Use \"{APP_NAME} update [--force]\".")),
+        );
+        return None;
+    }
+    if has_package {
+        fail(
+            "Package updates moved to the package command.",
+            Some(format!("Use \"{APP_NAME} package update [source]\".")),
+        );
+        return None;
+    }
     let mut invocation = crate::self_update::SelfUpdateOptions::default();
     let mut index = 0;
     let mut channel: Option<&str> = None;
@@ -564,7 +602,7 @@ fn run_package(args: &[String]) -> PublicCommandResult {
             arg == "--self" || arg == "--extensions" || arg == "--extension" || arg == "--force"
         }) {
             return fail(
-                "Package updates accept only an optional source. Use \"prime-agent update\" to update Prime Agent.",
+                "Package updates accept only an optional source. Use \"prime-agent update --force\" to update Prime Agent.",
                 None,
             );
         }

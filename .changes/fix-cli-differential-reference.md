@@ -1,0 +1,1 @@
+- Fixed CLI compatibility checks to use an explicit TypeScript v0.9.8 reference and restored matching output streams and legacy argument diagnostics.

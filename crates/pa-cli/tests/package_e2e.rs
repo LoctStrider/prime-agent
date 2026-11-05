@@ -22,6 +22,19 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[test]
+fn package_update_rejects_app_update_options_with_the_force_hint() {
+    let output = Command::new(env!("CARGO_BIN_EXE_prime-agent"))
+        .args(["package", "update", "--self"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "Error: Package updates accept only an optional source. Use \"prime-agent update --force\" to update Prime Agent.\n"
+    );
+}
+
 const NPM_SHIM: &str = r#"#!/usr/bin/env bash
 echo "npm $*" >> {LOG}
 CMD="$1"; shift

@@ -10,11 +10,11 @@
 )]
 
 //! Differential CLI tests: run a corpus of invocations against both the
-//! installed TypeScript `prime-agent` binary (ground truth for parity) and
+//! explicitly configured TypeScript v0.9.8 binary (compatibility reference) and
 //! the Rust binary, and assert matching exit codes, stdout, and stderr.
 //! Corpus policy: only invocations fully determined by the CLI surface
 //! itself (help/version, validation errors, routing errors, MCP settings
-//! reads/writes); the test is skipped when the TS binary is not installed.
+//! reads/writes); skipped only when PA_TS_BINARY is not configured.
 #![cfg(unix)]
 
 use std::fmt::Write as _;
@@ -305,16 +305,23 @@ const CORPUS: &[&[&str]] = &[
 ];
 
 fn ts_binary() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("PA_TS_BINARY") {
-        return Some(PathBuf::from(path));
-    }
-    let found = Command::new("which")
-        .arg("prime-agent")
-        .output()
-        .ok()
-        .filter(|out| out.status.success())?;
-    let path = String::from_utf8_lossy(&found.stdout).trim().to_string();
-    (!path.is_empty()).then(|| PathBuf::from(path))
+    configured_ts_binary(std::env::var_os("PA_TS_BINARY"))
+}
+
+fn configured_ts_binary(path: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = path?;
+    assert!(!path.is_empty(), "PA_TS_BINARY must not be empty");
+    let path = std::fs::canonicalize(&path)
+        .unwrap_or_else(|error| panic!("invalid PA_TS_BINARY {path:?}: {error}"));
+    let metadata = std::fs::metadata(&path).expect("stat PA_TS_BINARY");
+    assert!(
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
+        "PA_TS_BINARY must be an executable file: {}",
+        path.display()
+    );
+    Some(path)
 }
 
 struct InvocationOutput {
@@ -324,33 +331,7 @@ struct InvocationOutput {
 }
 
 fn run(binary: &Path, args: &[&str], sandbox: &Path) -> InvocationOutput {
-    let output = Command::new("timeout")
-        .arg("20")
-        .arg(binary)
-        .args(args)
-        .env("HOME", sandbox.join("home"))
-        // Isolate the agent state dir: the TS binary resolves the real home
-        // through passwd rather than $HOME, so the env override is the only
-        // reliable isolation for both binaries.
-        .env("PRIME_AGENT_CODING_AGENT_DIR", sandbox.join("agent"))
-        // Isolate TMPDIR too: without it the
-        // TS daemon census escapes into the box's ambient daemons and
-        // `shutdown --force` kills unrelated sockets (containment contract).
-        .env("TMPDIR", sandbox.join("tmp"))
-        // Isolate the socket dir the same way: daemon discovery (status,
-        // doctor, shutdown) must never see this box's real sockets, and
-        // `shutdown --force` on the TS binary has no containment guard.
-        .env("TMPDIR", sandbox.join("tmp"))
-        .env("PI_OFFLINE", "1")
-        .current_dir(sandbox.join("cwd"))
-        .current_dir(sandbox.join("cwd"))
-        .output()
-        .expect("failed to spawn binary under test");
-    InvocationOutput {
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    run_with_env(binary, args, sandbox, &[])
 }
 
 /// Normalize version numbers so the TS product version (0.9.x) and the Rust
@@ -365,30 +346,63 @@ fn normalize(text: &str, sandbox_roots: &[&Path]) -> String {
     // Docs paths in login guidance resolve to each binary's own install dir
     // (package dir); compare the shape, not the installation location.
     text = normalize_docs_paths(&text);
-    // The `prompt` dump command is a Rust-first addition the TS product has
-    // not adopted yet; normalize its help rows out so the rest of the command
-    // surface still compares equal. When the TS product adopts the command,
-    // drop this normalizer.
-    text = normalize_prompt_command_rows(&text);
     normalize_versions(&text)
 }
 
-/// Remove the `prompt` command row from top-level help (the Rust binary
-/// lists a command the TS binary does not have yet).
-fn normalize_prompt_command_rows(text: &str) -> String {
-    text.lines()
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !(trimmed.starts_with("prompt")
-                && trimmed.contains("Print the assembled system prompt"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Compare only the documented cross-version changes, and only in their help
+/// contexts. Unknown/edited rows remain visible to the byte comparison.
+fn compatible_help(text: &str, args: &[&str]) -> String {
+    let mut text = text.to_string();
+    if matches!(args, ["--help"] | ["-h"] | ["help"]) {
+        // #3189 removed extensions; #3211 removed no-op tool-selection flags.
+        text = text.replace("Tool and resource options:\n", "Resource options:\n");
+        for row in [
+            "  -t, --tools <list>          Allowlist comma-separated tool names\n",
+            "  -nt, --no-tools             Disable all tools by default\n",
+            "  -nbt, --no-builtin-tools    Disable built-in tools by default\n",
+            "  -e, --extension <source>    Load an extension (repeatable)\n",
+            "  -ne, --no-extensions        Disable extension discovery\n",
+            // #3285 machine library; the prompt dump is a Rust-first addition.
+            "  factory   Share and run factory machines from the machine library\n",
+            "  prompt    Print the assembled system prompt with its layer breakdown\n",
+        ] {
+            text = text.replace(row, "");
+        }
+        // #2524 replaced self-update with the Rust installer funnel.
+        text = text.replace(
+            "  update    Update to the latest Rust build (uninstalls the TypeScript version)\n",
+            "  update    Update Prime Agent\n",
+        );
+    }
+    if args == ["help", "package"] {
+        text = text.replace(
+            "Packages can provide extensions, skills, prompts, and themes.",
+            "Packages can provide skills, prompts, and themes.",
+        );
+    }
+    if args == ["help", "update"] {
+        // #2524 installer funnel, #3243 channel selection, #3278 local rollback/archive.
+        // Map exact changed rows, leaving the shared scaffolding under comparison.
+        for (rust, ts) in [
+            ("  prime-agent update [--check] [--nightly|--stable]\n", "  prime-agent update [--force] [--rollback] [--nightly|--stable]\n"),
+            ("Update to the latest Rust build (uninstalls the TypeScript version).\n", "Update Prime Agent.\n"),
+            ("  --force     Reinstall the latest build of the channel\n", "  --force     Reinstall even if the current version is the latest on the channel\n"),
+            ("  --rollback  Restore the previous version the last update kept\n", "  --rollback  Restore the previous compiled release\n"),
+            ("  --nightly   Switch updates to the nightly channel (the latest main build)\n", "  --nightly   Switch updates to the nightly channel (unreleased builds, may be broken)\n"),
+            ("Move from the TypeScript version to the Rust port in one step: `prime-agent update` fetches the update channel's installer (stable: https://app.primeintellect.ai/prime-agent/install.sh; nightly: install-beta.sh from the release download base — never a GitHub raw or workflow URL) and runs it, which uninstalls the TypeScript version and installs the latest Rust build; your sessions and configuration (~/.prime/agent) are never touched. Restart prime-agent after the update to run the new build. This command exists only in the Rust binary — the TypeScript version does not have it; the move happens when you run the installer's curl|sh URL (the README's Install section) or `prime-agent update` (after the Rust install exists).\n\n", ""),
+            ("  --check  Print the update channel's latest release vs the running version, without installing\n", ""),
+            ("  --archive <path>  Install a local release archive\n", ""),
+            ("  --source <url>     The https:// origin recorded as the release's install source (managed installs; required there with --archive)\n", ""),
+        ] {
+            text = text.replace(rust, ts);
+        }
+    }
+    text
 }
 
 /// Replace `<any dir>/docs/providers.md|models.md` lines with a placeholder.
 fn normalize_docs_paths(text: &str) -> String {
-    text.lines()
+    text.split_inclusive('\n')
         .map(|line| {
             let trimmed = line.trim_start();
             for doc in ["/docs/providers.md", "/docs/models.md"] {
@@ -398,8 +412,7 @@ fn normalize_docs_paths(text: &str) -> String {
             }
             line.to_string()
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 fn normalize_versions(text: &str) -> String {
@@ -462,11 +475,23 @@ fn differential_corpus_matches_ts_binary() {
     for case in CORPUS {
         let ts_out = run(&ts, case, &ts_sandbox);
         let rs_out = run(&rust, case, &rs_sandbox);
+        // #3189 removed unknown long-option passthrough (the extension flag
+        // surface). `--json` was never a model-list format in TS v0.9.8.
+        if *case == ["model", "list", "--json"] {
+            assert_eq!(rs_out.exit_code, Some(1));
+            assert_eq!(rs_out.stdout, "");
+            assert_eq!(rs_out.stderr, "Error: Unknown option: --json\n");
+            let ts_plain = run(&ts, &["model", "list"], &ts_sandbox);
+            assert_eq!(ts_out.exit_code, ts_plain.exit_code);
+            assert_eq!(ts_out.stdout, ts_plain.stdout);
+            assert_eq!(ts_out.stderr, ts_plain.stderr);
+            continue;
+        }
         let ok = ts_out.exit_code == rs_out.exit_code
-            && normalize(&ts_out.stdout, &sandbox_roots)
-                == normalize(&rs_out.stdout, &sandbox_roots)
-            && normalize(&ts_out.stderr, &sandbox_roots)
-                == normalize(&rs_out.stderr, &sandbox_roots);
+            && normalize(&compatible_help(&ts_out.stdout, case), &sandbox_roots)
+                == normalize(&compatible_help(&rs_out.stdout, case), &sandbox_roots)
+            && normalize(&compatible_help(&ts_out.stderr, case), &sandbox_roots)
+                == normalize(&compatible_help(&rs_out.stderr, case), &sandbox_roots);
         if !ok {
             failures.push(format!(
                 "argv: {:?}\n  ts exit {:?} rs exit {:?}\n  ts stdout: {:?}\n  rs stdout: {:?}\n  ts stderr: {:?}\n  rs stderr: {:?}",
@@ -500,9 +525,29 @@ fn run_with_env(
         .arg("20")
         .arg(binary)
         .args(args)
+        .env_remove("PI_PACKAGE_DIR")
+        .env("HOME", sandbox.join("home"))
+        .env("TMPDIR", sandbox.join("tmp"))
         .env("PRIME_AGENT_CODING_AGENT_DIR", sandbox.join("agent"))
         .env("PI_OFFLINE", "1")
         .current_dir(sandbox.join("cwd"));
+    // Do not let the hosting agent redirect resources, session files, or daemon
+    // clients out of the sandbox. The TS wrapper may set its own package root.
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy();
+        if name.starts_with("PRIME_AGENT_INTERNAL_")
+            || matches!(
+                name.as_ref(),
+                "PRIME_AGENT_SESSION_DIR"
+                    | "PRIME_AGENT_CODING_AGENT_SESSION_DIR"
+                    | "PRIME_AGENT_DAEMON_SOCKET"
+                    | "RLM_SESSION_DIR"
+                    | "RLM_HARNESS_STATE_DIR"
+            )
+        {
+            command.env_remove(key);
+        }
+    }
     for (key, value) in envs {
         command.env(key, value);
     }
@@ -622,9 +667,9 @@ fn differential_session_export_matches_ts_binary() {
         "stderr"
     );
     assert!(
-        rs_out.stdout.contains("Exported to: out.html"),
+        rs_out.stderr.contains("Exported to: out.html"),
         "success line: {}",
-        rs_out.stdout
+        rs_out.stderr
     );
 
     let ts_html =
@@ -659,4 +704,94 @@ fn differential_session_export_matches_ts_binary() {
         normalize(&rs_missing.stderr, &sandbox_roots),
         "missing-file stderr"
     );
+}
+
+#[test]
+fn ts_reference_requires_explicit_executable() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    assert_eq!(configured_ts_binary(None), None);
+    let root = sandbox("reference-validation");
+    let file = root.join("reference");
+    std::fs::write(&file, "#!/bin/sh\nexit 0\n").unwrap();
+    for invalid in [
+        std::ffi::OsString::new(),
+        root.as_os_str().to_owned(),
+        file.as_os_str().to_owned(),
+        root.join("missing").into_os_string(),
+    ] {
+        assert!(std::panic::catch_unwind(|| configured_ts_binary(Some(invalid))).is_err());
+    }
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        configured_ts_binary(Some(file.clone().into_os_string())),
+        Some(std::fs::canonicalize(file).unwrap())
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn help_exceptions_preserve_shared_text_and_whitespace() {
+    let ts = "Usage:\nTool and resource options:\n  -e, --extension <source>    Load an extension (repeatable)\n  --skill <path>              Load a skill (repeatable)\n";
+    let rust =
+        "Usage:\nResource options:\n  --skill <path>              Load a skill (repeatable)\n";
+    assert_eq!(compatible_help(ts, &["help"]), rust);
+    assert_ne!(
+        compatible_help(ts, &["help"]),
+        rust.replace("Load a skill", "Load skills")
+    );
+    assert_ne!(
+        compatible_help(ts, &["help"]),
+        rust.replace("  --skill", " --skill")
+    );
+    assert_eq!(compatible_help(ts, &["help", "mcp"]), ts);
+    assert_ne!(normalize(rust, &[]), normalize(rust.trim_end(), &[]));
+}
+
+#[test]
+fn rust_help_describes_supported_resources_and_installer() {
+    let root = sandbox("rust-help");
+    let rust = PathBuf::from(env!("CARGO_BIN_EXE_prime-agent"));
+    let top = run(&rust, &["help"], &root);
+    assert_eq!(top.exit_code, Some(0));
+    assert!(top.stderr.is_empty());
+    for command in ["factory", "prompt"] {
+        assert!(top
+            .stdout
+            .lines()
+            .any(|line| line.starts_with(&format!("  {command} "))));
+        let command_help = run(&rust, &["help", command], &root);
+        assert_eq!(command_help.exit_code, Some(0));
+        assert!(command_help.stdout.starts_with("Usage:\n"));
+    }
+    for flag in [
+        "--tools",
+        "--no-tools",
+        "--no-builtin-tools",
+        "--extension",
+        "--no-extensions",
+    ] {
+        let output = run(&rust, &[flag], &root);
+        assert_eq!(output.exit_code, Some(1));
+        assert!(output.stderr.contains(&format!("Unknown option: {flag}")));
+        assert!(!top.stdout.contains(flag));
+    }
+    let package = run(&rust, &["help", "package"], &root);
+    assert!(package
+        .stdout
+        .contains("Packages can provide skills, prompts, and themes."));
+    let update = run(&rust, &["help", "update"], &root);
+    assert_eq!(update.exit_code, Some(0));
+    assert!(update.stdout.contains("uninstalls the TypeScript version"));
+    for flag in [
+        "--check",
+        "--archive <path>",
+        "--source <url>",
+        "--rollback",
+        "--nightly",
+        "--stable",
+    ] {
+        assert!(update.stdout.contains(flag), "missing {flag}");
+    }
+    std::fs::remove_dir_all(root).unwrap();
 }
