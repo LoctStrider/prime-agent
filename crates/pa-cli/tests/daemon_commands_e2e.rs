@@ -51,7 +51,7 @@ use serde_json::{json, Value};
 
 /// Env keys this box's own worker sets; they must not leak into spawned
 /// daemons. `PI_PACKAGE_DIR` too: a Rust-checkout value kills the TS CLI.
-const SCRUB_ENV: [&str; 10] = [
+const SCRUB_ENV: [&str; 13] = [
     "PRIME_AGENT_INTERNAL_DAEMON_WORKER",
     "PRIME_AGENT_INTERNAL_DAEMON_WORKER_TOKEN",
     "PRIME_AGENT_INTERNAL_DAEMON_WORKER_ACTIVE_SESSION_ID",
@@ -61,6 +61,9 @@ const SCRUB_ENV: [&str; 10] = [
     "PRIME_AGENT_INTERNAL_ORPHAN_PROCESS_JOURNAL",
     "PRIME_AGENT_INTERNAL_SESSION_LEASES",
     "PRIME_AGENT_INTERNAL_SESSION_LEASE_OWNER_ID",
+    "PRIME_AGENT_SESSION_DIR",
+    "RLM_SESSION_DIR",
+    "RLM_HARNESS_STATE_DIR",
     "PI_PACKAGE_DIR",
 ];
 
@@ -81,20 +84,18 @@ fn daemon_binary() -> PathBuf {
     daemon
 }
 
-/// The installed TS binary, when present (`PA_TS_BINARY` or `prime-agent` on PATH).
+/// Only an explicitly selected TS reference may provide parity evidence.
 fn ts_binary() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("PA_TS_BINARY") {
-        let path = PathBuf::from(path);
-        return path.exists().then_some(path);
-    }
-    let probe = Command::new("prime-agent")
-        .arg("--version")
-        .output()
-        .ok()?
-        .status
-        .success()
-        .then(|| PathBuf::from("prime-agent"));
-    probe
+    let path = std::env::var_os("PA_TS_BINARY")?;
+    assert!(!path.is_empty(), "PA_TS_BINARY must not be empty");
+    let path = std::fs::canonicalize(&path)
+        .unwrap_or_else(|error| panic!("invalid PA_TS_BINARY {path:?}: {error}"));
+    assert!(
+        path.is_file(),
+        "PA_TS_BINARY is not a file: {}",
+        path.display()
+    );
+    Some(path)
 }
 
 struct Daemon {
@@ -130,15 +131,19 @@ fn spawn_daemon(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
         pa_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    let child = command.spawn().expect("spawn daemon supervisor");
+    let mut daemon = Daemon {
+        child: command.spawn().expect("spawn daemon supervisor"),
+        socket: socket.to_path_buf(),
+    };
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon {
-                child,
-                socket: socket.to_path_buf(),
-            };
+        if UnixStream::connect(socket).is_ok() {
+            return daemon;
         }
+        assert!(
+            daemon.child.try_wait().expect("poll daemon").is_none(),
+            "supervisor exited before becoming ready"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     panic!("supervisor socket never appeared");
@@ -756,12 +761,57 @@ fn schedule_usage_errors_and_valid_invocations() {
     }
 }
 
+#[test]
+fn rust_cron_global_list_add_cancel_regression() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let sessions = agent_dir.join("sessions");
+    std::fs::create_dir_all(&sessions).expect("sessions dir");
+    let socket = dir.path().join("daemon.sock");
+    let daemon = spawn_daemon(&daemon_binary(), &socket, &agent_dir);
+    let (mut wire, hello) = Wire::connect(&socket);
+    assert_eq!(hello["type"], "daemon_hello");
+    let active = create_session(
+        &mut wire,
+        "session",
+        "cron-regression",
+        dir.path(),
+        &sessions,
+        None,
+    );
+
+    let empty = wire.request("list-empty", &json!({"type": "cron_list"}));
+    assert_eq!(empty["success"], true, "{empty}");
+    assert_eq!(empty["data"]["jobs"], json!([]));
+    let added = wire.request(
+        "add",
+        &json!({
+            "type": "cron_add", "activeSessionId": active,
+            "schedule": "in 10m", "prompt": "regression"
+        }),
+    );
+    assert_eq!(added["success"], true, "{added}");
+    let job_id = added["data"]["job"]["id"]
+        .as_str()
+        .expect("job id")
+        .to_owned();
+    let listed = wire.request("list-global", &json!({"type": "cron_list"}));
+    assert_eq!(listed["data"]["jobs"].as_array().expect("jobs").len(), 1);
+    assert_eq!(listed["data"]["jobs"][0]["id"], job_id.as_str());
+    let cancelled = wire.request("cancel", &json!({"type": "cron_cancel", "jobId": job_id}));
+    assert_eq!(cancelled["success"], true, "{cancelled}");
+    let after = wire.request("list-after-cancel", &json!({"type": "cron_list"}));
+    assert_eq!(after["success"], true, "{after}");
+    assert_eq!(after["data"]["jobs"], json!([]));
+    drop(daemon);
+}
+
 // TS differential: both CLIs against the same TS daemon
 
 #[test]
 fn ts_daemon_differential_cli_output() {
     let Some(ts) = ts_binary() else {
-        eprintln!("SKIPPED: TS prime-agent binary not found (set PA_TS_BINARY)");
+        eprintln!("SKIPPED: PA_TS_BINARY is not configured; TS parity was not checked");
         return;
     };
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -799,8 +849,12 @@ fn ts_daemon_differential_cli_output() {
     )
     .expect("fixture model settings");
     // `schedule` cannot take --daemon-socket (TS parity); the daemon uses the default path.
-    std::env::set_var("TMPDIR", dir.path());
-    let socket = pa_daemon::socket::default_daemon_socket_path();
+    // Derive the child-local default without mutating this test process's env.
+    let socket_dir = pa_daemon::socket::socket_dir();
+    let socket = dir
+        .path()
+        .join(socket_dir.file_name().expect("user socket directory"))
+        .join("daemon.sock");
     // The TS daemon does not create the socket's parent on bind (the Rust
     // supervisor does), so the parent must exist first.
     std::fs::create_dir_all(socket.parent().expect("socket parent")).expect("socket parent dir");
@@ -825,12 +879,20 @@ fn ts_daemon_differential_cli_output() {
         pa_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    let mut daemon = daemon_command.spawn().expect("spawn TS daemon");
+    // Install the guard before readiness checks so panics also reap the child.
+    let mut daemon = Daemon {
+        child: daemon_command.spawn().expect("spawn TS daemon"),
+        socket: socket.clone(),
+    };
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         if UnixStream::connect(&socket).is_ok() {
             break;
         }
+        assert!(
+            daemon.child.try_wait().expect("poll TS daemon").is_none(),
+            "TS daemon exited before becoming ready (check PA_TS_BINARY)"
+        );
         assert!(Instant::now() < deadline, "TS daemon socket never appeared");
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -1049,9 +1111,7 @@ fn ts_daemon_differential_cli_output() {
         ));
     }
 
-    let _ = daemon.kill();
-    let _ = daemon.wait();
-    std::env::remove_var("TMPDIR");
+    drop(daemon);
     assert!(
         failures.is_empty(),
         "TS differential mismatches:\n{}",

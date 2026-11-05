@@ -361,57 +361,30 @@ impl Supervisor {
             rest: Map::default(),
         };
         for resident in self.live_workers_in_creation_order().await {
-            // The supervisor serves each worker's own catalog slice while it is
-            // current, so a `cron_list` consults a worker at most once per generation.
-            let generation = resident
-                .heartbeat_snapshot_generation
-                .load(Ordering::Relaxed);
-            let served_slice = {
-                let snapshot = resident.cron_snapshot.lock().await;
-                snapshot
+            // Ordinary cron changes do not emit heartbeats_changed, so each request
+            // must read the worker rather than reuse a heartbeat-generation snapshot.
+            let response = self
+                .forward_with_catalog_timeout(&resident, &listing_command, client_id)
+                .await;
+            let worker_jobs: Option<Vec<AgentCronJob>> = if response.success {
+                let list = response
+                    .data
                     .as_ref()
-                    // The freshness test re-reads the generation while the snapshot lock
-                    // is held: an invalidation between capture and lock never serves as current.
-                    .filter(|snapshot| {
-                        snapshot.generation
-                            == resident
-                                .heartbeat_snapshot_generation
-                                .load(Ordering::Relaxed)
-                    })
-                    .map(|snapshot| snapshot.jobs.clone())
-            };
-            let worker_jobs: Option<Vec<AgentCronJob>> = if let Some(jobs) = served_slice {
-                Some(jobs)
+                    .and_then(|data| data.get("jobs"))
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                Some(
+                    list.into_iter()
+                        .filter_map(|job| serde_json::from_value::<AgentCronJob>(job).ok())
+                        .collect(),
+                )
             } else {
-                let response = self
-                    .forward_with_catalog_timeout(&resident, &listing_command, client_id)
-                    .await;
-                if response.success {
-                    let list = response
-                        .data
-                        .as_ref()
-                        .and_then(|data| data.get("jobs"))
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
-                    let mut parsed = Vec::new();
-                    for job in list {
-                        let Ok(job) = serde_json::from_value::<AgentCronJob>(job) else {
-                            continue;
-                        };
-                        parsed.push(job);
-                    }
-                    resident
-                        .store_cron_snapshot(parsed.clone(), generation)
-                        .await;
-                    Some(parsed)
-                } else {
-                    self.log_line(&format!(
-                        "Could not list scheduled jobs from a worker: {}",
-                        response.error.unwrap_or_default()
-                    ));
-                    None
-                }
+                self.log_line(&format!(
+                    "Could not list scheduled jobs from a worker: {}",
+                    response.error.unwrap_or_default()
+                ));
+                None
             };
             let worker_jobs =
                 worker_jobs.map(|jobs| Self::filter_cron_rows(include_inactive, jobs));
@@ -421,7 +394,7 @@ impl Supervisor {
                 }
             }
         }
-        for passive in self.passive_catalog_rows(include_inactive).await {
+        for passive in self.collect_passive_scheduled_jobs(include_inactive).await {
             if seen.insert(passive.job.id.clone()) {
                 jobs.push(passive.job);
             }

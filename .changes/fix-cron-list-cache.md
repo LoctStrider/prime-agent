@@ -1,0 +1,1 @@
+- Fixed global scheduled-job lists staying empty or showing stale jobs after schedule changes.

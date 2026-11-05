@@ -119,9 +119,6 @@ pub(crate) struct ResidentWorker {
     /// The last-good heartbeats catalog answer, tagged with its generation: served when the worker
     /// is too busy for a fresh list (fresh only while current).
     pub(crate) heartbeat_snapshot: Mutex<Option<WorkerHeartbeatSnapshot>>,
-    /// The last selector-less `cron_list` answer, tagged with its generation: served without
-    /// forwarding while current (at most one consult per generation).
-    pub(crate) cron_snapshot: Mutex<Option<WorkerCronSnapshot>>,
     /// The heartbeat-catalog generation, bumped by every
     /// `heartbeats_changed`: a snapshot is fresh only while its generation is current.
     pub(crate) heartbeat_snapshot_generation: AtomicU64,
@@ -160,14 +157,6 @@ pub(crate) struct WorkerHeartbeatSnapshot {
     pub(crate) generation: u64,
 }
 
-/// The last cron jobs a worker answered a selector-less `cron_list` with, tagged with their
-/// generation: trustworthy only while current, so an invalidation forces the next consult.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct WorkerCronSnapshot {
-    pub(crate) jobs: Vec<pa_core::cron::AgentCronJob>,
-    pub(crate) generation: u64,
-}
-
 impl ResidentWorker {
     pub(crate) fn new(
         worker_id: String,
@@ -191,7 +180,6 @@ impl ResidentWorker {
             monitor_epoch: AtomicU64::new(0),
             peer_transport_capable: AtomicBool::new(false),
             heartbeat_snapshot: Mutex::new(None),
-            cron_snapshot: Mutex::new(None),
             heartbeat_snapshot_generation: AtomicU64::new(0),
             route_state_tx,
             identity_persist_pending: AtomicBool::new(false),
@@ -354,22 +342,6 @@ impl ResidentWorker {
             .is_none_or(|stored| generation >= stored.generation)
         {
             *snapshot = Some(WorkerHeartbeatSnapshot { rows, generation });
-        }
-    }
-
-    /// Store the last selector-less `cron_list` answer, under the same
-    /// generation-monotonic discipline as [`Self::store_heartbeat_snapshot`].
-    pub(crate) async fn store_cron_snapshot(
-        &self,
-        jobs: Vec<pa_core::cron::AgentCronJob>,
-        generation: u64,
-    ) {
-        let mut snapshot = self.cron_snapshot.lock().await;
-        if snapshot
-            .as_ref()
-            .is_none_or(|stored| generation >= stored.generation)
-        {
-            *snapshot = Some(WorkerCronSnapshot { jobs, generation });
         }
     }
 }
