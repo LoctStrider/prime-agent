@@ -34,8 +34,8 @@ use pa_tui::interactive::{
     run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
 
-/// The SGR tracking sequences the seam writes (enable: `?1002h` then `?1006h`).
-const MOUSE_ENABLE: &str = "\x1b[?1002h\x1b[?1006h";
+/// The mouse tracking sequence emitted by the terminal seam, in order.
+const MOUSE_ENABLE: &str = "\x1b[?1002h\x1b[?1003h\x1b[?1006h";
 
 /// The hardware-cursor visibility bytes (`crossterm::cursor::Show`/`Hide`).
 const CURSOR_SHOW: &str = "\x1b[?25h";
@@ -51,6 +51,18 @@ fn cursor_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
         return;
     };
+    let tty = std::fs::File::open("/dev/tty").expect("child controlling terminal");
+    let fd = tty.as_raw_fd();
+    let mut size = std::mem::MaybeUninit::<libc::winsize>::uninit();
+    // SAFETY: ioctl initializes the winsize; the remaining calls only query process IDs.
+    unsafe {
+        assert_eq!(libc::ioctl(fd, libc::TIOCGWINSZ, size.as_mut_ptr()), 0);
+        let size = size.assume_init();
+        assert_eq!((size.ws_row, size.ws_col), (24, 80));
+        assert_eq!(libc::tcgetpgrp(fd), libc::getpgrp());
+        assert_ne!(libc::getpgrp(), libc::getpgid(libc::getppid()));
+        assert_eq!(libc::getsid(0), libc::getsid(libc::getppid()));
+    }
     let options = child_options(PathBuf::from(socket));
     // A current-thread runtime keeps the child's thread count down across the stop/continue cycle.
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -63,30 +75,8 @@ fn cursor_child_mode() {
 /// The pty harnesses serialize: concurrent process-group signals and raw ptys flake on shared CPUs.
 static HARNESS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Whether this runner is attached to a controlling-terminal session (needed for stop/continue).
-fn sigtstp_session_runner() -> bool {
-    // SAFETY: tcgetpgrp only queries the fd's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(0) };
-    if foreground < 0 {
-        eprintln!(
-            "no controlling-terminal session on the runner (tcgetpgrp(fd 0) \
-             failed); skipping the cursor visibility e2e — it needs a \
-             controlling-terminal session to drive the suspend cycle"
-        );
-        return false;
-    }
-    true
-}
-
 #[test]
 fn cursor_stays_hidden_and_positioned_across_mount_picker_and_suspend() {
-    if !sigtstp_session_runner() {
-        return;
-    }
-    match nix::unistd::setsid() {
-        Ok(_) => {}
-        Err(error) => panic!("the harness could not start a fresh session: {error}"),
-    }
     let _lock = match HARNESS_LOCK.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -96,13 +86,15 @@ fn cursor_stays_hidden_and_positioned_across_mount_picker_and_suspend() {
     // Startup: the surface enables SGR mouse tracking before any input — the startup marker.
     harness.wait_from_start(MOUSE_ENABLE, "startup mouse enable");
 
-    // Typing: the hidden cursor parks right after the typed cells for IME — row 22
-    // (the prompt dock line), column 7. The position write proves the caret is tracked.
+    // At 24 rows the caret is on row 20: below it sit the editor's trailing
+    // row, tray, and two activity-dock rows (view/panels.rs::render_dock).
+    // editor_surface::render puts the empty caret after four prompt cells;
+    // typing two ASCII cells moves it from column 5 to column 7.
     let mark_typed = harness.mark();
     harness.write(b"hi");
     harness.wait_from(
         mark_typed,
-        "\x1b[22;7H",
+        "\x1b[20;7H",
         "the editor positions the hidden cursor at the caret",
     );
 
@@ -112,7 +104,7 @@ fn cursor_stays_hidden_and_positioned_across_mount_picker_and_suspend() {
     harness.write(b"\x7f\x7f");
     harness.wait_from(
         mark_clear,
-        "\x1b[22;5H",
+        "\x1b[20;5H",
         "the editor emptied back to the bare caret",
     );
     let mark_picker = harness.mark();
@@ -123,7 +115,7 @@ fn cursor_stays_hidden_and_positioned_across_mount_picker_and_suspend() {
     // picker-open frames end at the bare hide, so no picker cell can false-match.
     harness.wait_from(
         mark_picker,
-        "\x1b[?25l\x1b[22;5H",
+        "\x1b[?25l\x1b[20;5H",
         "the closed picker returns the caret to the empty editor",
     );
     // Let the escape settle before the next key: a byte written hot on its heels reads
@@ -190,7 +182,7 @@ fn cursor_stays_hidden_and_positioned_across_mount_picker_and_suspend() {
 
     // No show rides the caret positioning: every MoveTo is a bare position write,
     // never ratatui's show+position pair (the shape the port must not emit).
-    for caret in [b"\x1b[22;5H".as_slice(), b"\x1b[22;7H".as_slice()] {
+    for caret in [b"\x1b[20;5H".as_slice(), b"\x1b[20;7H".as_slice()] {
         let mut offset = 0;
         while let Some(at) = find_subsequence(&stream[offset..], caret) {
             let start = offset + at;
@@ -340,6 +332,19 @@ impl CursorHarness {
     }
 }
 
+impl Drop for CursorHarness {
+    fn drop(&mut self) {
+        // The foreground TUI is in a different group from its session supervisor.
+        // SAFETY: tcgetpgrp only queries our pty; kill targets that private group.
+        let foreground = unsafe { libc::tcgetpgrp(self.master.file.as_raw_fd()) };
+        if foreground > 0 {
+            let _ = kill(Pid::from_raw(-foreground), Signal::SIGKILL);
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// Non-blocking reader over the pty master, collecting the child's byte stream.
 struct PtyReader {
     file: std::fs::File,
@@ -424,28 +429,77 @@ fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
     count
 }
 
-/// A child process group of this very binary, re-executed with the pty slave as
-/// its terminal and no tmux (the tmux keyboard check must stay out of the way).
-fn spawn_child(socket: &std::path::Path, slave: &OwnedFd) -> Child {
-    // Runs between fork and exec: setpgid moves it into its own process group.
-    fn make_process_group() -> std::io::Result<()> {
-        nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0))?;
-        Ok(())
-    }
+/// A private session leader keeps the TUI's foreground process group non-orphaned.
+/// Mirror its stop on the direct child so the harness can use waitpid(WUNTRACED).
+#[test]
+fn cursor_supervisor_mode() {
+    let Ok(socket) = std::env::var("PA_CURSOR_SUPERVISOR_SOCKET") else {
+        return;
+    };
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
         .arg("cursor_child_mode")
+        .arg("--nocapture")
         .env(CHILD_SOCKET_ENV, socket)
+        .env_remove("PA_CURSOR_SUPERVISOR_SOCKET");
+    // SAFETY: only async-signal-safe terminal/process setup runs after fork.
+    unsafe {
+        command.pre_exec(|| {
+            libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+            if libc::setpgid(0, 0) < 0 || libc::tcsetpgrp(0, libc::getpid()) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            libc::signal(libc::SIGTTOU, libc::SIG_DFL);
+            libc::signal(libc::SIGTSTP, libc::SIG_DFL);
+            libc::signal(libc::SIGTTIN, libc::SIG_DFL);
+            Ok(())
+        });
+    }
+    // waitpid below reaps this child and also observes job-control stops.
+    #[allow(clippy::zombie_processes)]
+    let child = command.spawn().expect("spawn TUI child");
+    let pid = Pid::from_raw(child.id() as i32);
+    loop {
+        match waitpid(pid, Some(WaitPidFlag::WUNTRACED)) {
+            Ok(WaitStatus::Stopped(_, _)) => {
+                // raise targets this thread, so SIGCONT forwarding cannot race the stop.
+                // SAFETY: SIGSTOP synchronously suspends this private supervisor.
+                assert_eq!(unsafe { libc::raise(libc::SIGSTOP) }, 0);
+                kill(pid, Signal::SIGCONT).expect("resume TUI child");
+            }
+            Ok(WaitStatus::Exited(_, code)) => std::process::exit(code),
+            Ok(WaitStatus::Signaled(_, signal, _)) => {
+                std::process::exit(128 + signal as i32);
+            }
+            Err(nix::errno::Errno::EINTR) | Ok(WaitStatus::Continued(_)) => {}
+            status => panic!("unexpected TUI child status: {status:?}"),
+        }
+    }
+}
+
+/// Re-execute this binary with its own session and the pty as controlling terminal.
+fn spawn_child(socket: &std::path::Path, slave: &OwnedFd) -> Child {
+    let mut command = Command::new(std::env::current_exe().expect("test binary"));
+    command
+        .arg("--exact")
+        .arg("cursor_supervisor_mode")
+        .arg("--nocapture")
+        .env("PA_CURSOR_SUPERVISOR_SOCKET", socket)
         .env_remove("TMUX")
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // process-group setup; it runs post-fork pre-exec in the child only
-    // and cannot disturb this process.
-    unsafe { command.pre_exec(make_process_group) };
-    command.spawn().expect("spawn child")
+    // SAFETY: these async-signal-safe calls affect only the forked child.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.spawn().expect("spawn session supervisor")
 }
 
 fn slave_as_stdio(slave: &OwnedFd) -> Stdio {
