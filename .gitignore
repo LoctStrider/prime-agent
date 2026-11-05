@@ -1,5 +1,6 @@
 
 /target
+.envrc
 /bin/
 __pycache__/
 steer-queue-runs/
