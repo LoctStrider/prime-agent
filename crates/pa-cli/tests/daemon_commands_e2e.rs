@@ -12,7 +12,6 @@
 //! End-to-end daemon-command tests: spawn the real `pa-daemon` supervisor on a
 //! temp socket, drive `prime-agent` list/stop/rename against it, and diff the
 //! output against goldens captured from the installed TS `prime-agent` binary.
-//! A second test spawns the TS daemon itself and runs both CLIs against it.
 //!
 //! Goldens (captured from the live TS binary, protocol 7):
 //!
@@ -50,7 +49,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 /// Env keys this box's own worker sets; they must not leak into spawned
-/// daemons. `PI_PACKAGE_DIR` too: a Rust-checkout value kills the TS CLI.
+/// daemons. `PI_PACKAGE_DIR` too: it redirects package directory resolution.
 const SCRUB_ENV: [&str; 13] = [
     "PRIME_AGENT_INTERNAL_DAEMON_WORKER",
     "PRIME_AGENT_INTERNAL_DAEMON_WORKER_TOKEN",
@@ -82,20 +81,6 @@ fn daemon_binary() -> PathBuf {
         daemon.display()
     );
     daemon
-}
-
-/// Only an explicitly selected TS reference may provide parity evidence.
-fn ts_binary() -> Option<PathBuf> {
-    let path = std::env::var_os("PA_TS_BINARY")?;
-    assert!(!path.is_empty(), "PA_TS_BINARY must not be empty");
-    let path = std::fs::canonicalize(&path)
-        .unwrap_or_else(|error| panic!("invalid PA_TS_BINARY {path:?}: {error}"));
-    assert!(
-        path.is_file(),
-        "PA_TS_BINARY is not a file: {}",
-        path.display()
-    );
-    Some(path)
 }
 
 struct Daemon {
@@ -218,7 +203,7 @@ impl Wire {
     }
 }
 
-/// Create one session (the scripted engine for the Rust supervisor, a real worker for the TS one).
+/// Create one session, optionally using the scripted engine.
 fn create_session(
     wire: &mut Wire,
     id: &str,
@@ -355,66 +340,11 @@ fn hex_display_id_normalizes_as_a_timestamp_even_when_it_reads_as_an_age() {
     assert_eq!(normalize_token("PM"), "<time>");
 }
 
-/// Recursively sort object keys so TS (insertion order) and Rust (sorted) JSON
-/// key orders compare equal.
-fn canonicalize(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            let mut sorted = serde_json::Map::new();
-            for key in keys {
-                sorted.insert(key.clone(), canonicalize(&map[key]));
-            }
-            Value::Object(sorted)
-        }
-        Value::Array(items) => Value::Array(items.iter().map(canonicalize).collect()),
-        other => other.clone(),
-    }
-}
-
 /// CLI args with the daemon socket flag prepended.
 fn list_args<'a>(socket: &'a str, rest: &[&'a str]) -> Vec<&'a str> {
     let mut args: Vec<&'a str> = vec!["--daemon-socket", socket];
     args.extend(rest.iter().copied());
     args
-}
-
-/// The two CLIs under comparison and their shared sandbox.
-struct CliPair {
-    ts: PathBuf,
-    rust: PathBuf,
-    dir: PathBuf,
-    agent_dir: PathBuf,
-}
-
-impl CliPair {
-    /// Run one command through both CLIs and record any output mismatch.
-    fn compare(&self, failures: &mut Vec<String>, ts_args: &[&str], rs_args: &[&str], label: &str) {
-        let ts_out = run_cli(&self.ts, &self.dir, &self.agent_dir, ts_args);
-        let rs_out = run_cli(&self.rust, &self.dir, &self.agent_dir, rs_args);
-        // These commands read the same stored jobs from one daemon. Their dates
-        // are not volatile: compare bytes so normalization cannot hide locale bugs.
-        let same_stdout = if matches!(label, "schedule list after add" | "schedule list --all") {
-            stdout(&ts_out) == stdout(&rs_out)
-        } else {
-            normalize(&stdout(&ts_out)) == normalize(&stdout(&rs_out))
-        };
-        let ok = ts_out.status.code() == rs_out.status.code()
-            && same_stdout
-            && normalize(&stderr(&ts_out)) == normalize(&stderr(&rs_out));
-        if !ok {
-            failures.push(format!(
-            "{label}:\n  ts exit {:?} stdout {:?} stderr {:?}\n  rs exit {:?} stdout {:?} stderr {:?}",
-            ts_out.status.code(),
-            stdout(&ts_out),
-            stderr(&ts_out),
-            rs_out.status.code(),
-            stdout(&rs_out),
-            stderr(&rs_out)
-        ));
-        }
-    }
 }
 
 // Rust end-to-end: pa-daemon + prime-agent
@@ -811,317 +741,4 @@ fn rust_cron_global_list_add_cancel_regression() {
     assert_eq!(after["success"], true, "{after}");
     assert_eq!(after["data"]["jobs"], json!([]));
     drop(daemon);
-}
-
-// TS differential: both CLIs against the same TS daemon
-
-#[test]
-fn ts_daemon_differential_cli_output() {
-    let Some(ts) = ts_binary() else {
-        eprintln!("SKIPPED: PA_TS_BINARY is not configured; TS parity was not checked");
-        return;
-    };
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    let sessions = agent_dir.join("sessions");
-    let work = dir.path().join("work");
-    std::fs::create_dir_all(&sessions).expect("sessions dir");
-    std::fs::create_dir_all(&work).expect("work dir");
-    // Sends test admission, not provider completion. Give the real TS worker
-    // synthetic credentials and an owned loopback listener that never replies:
-    // the command must still return its receipt, and no live provider is used.
-    let provider_listener =
-        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("fixture provider listener");
-    let provider_address = provider_listener
-        .local_addr()
-        .expect("fixture provider address");
-    std::fs::write(
-        agent_dir.join("models.json"),
-        json!({"providers": {"parity-cli": {
-            "api": "openai-completions",
-            "apiKey": "fixture-only",
-            "baseUrl": format!("http://{provider_address}/v1"),
-            "models": [{"id": "parity-1", "name": "CLI parity fixture",
-                "reasoning": false, "input": ["text"],
-                "contextWindow": 128_000, "maxTokens": 4096}]
-        }}})
-        .to_string(),
-    )
-    .expect("fixture model registry");
-    std::fs::write(
-        agent_dir.join("settings.json"),
-        json!({"defaultProvider": "parity-cli", "defaultModel": "parity-1",
-            "prewarmPythonKernel": false, "autoRefine": {"enabled": false}})
-        .to_string(),
-    )
-    .expect("fixture model settings");
-    // `schedule` cannot take --daemon-socket (TS parity); the daemon uses the default path.
-    // Derive the child-local default without mutating this test process's env.
-    let socket_dir = pa_daemon::socket::socket_dir();
-    let socket = dir
-        .path()
-        .join(socket_dir.file_name().expect("user socket directory"))
-        .join("daemon.sock");
-    // The TS daemon does not create the socket's parent on bind (the Rust
-    // supervisor does), so the parent must exist first.
-    std::fs::create_dir_all(socket.parent().expect("socket parent")).expect("socket parent dir");
-    let mut daemon_command = Command::new(&ts);
-    daemon_command
-        .arg("--mode")
-        .arg("daemon")
-        .arg("--daemon-socket")
-        .arg(&socket)
-        // The TS CLI resolves its manifest by walking up from the cwd; a Rust
-        // checkout has no package.json, so run from the scratch work dir.
-        .current_dir(&work)
-        .env("PRIME_AGENT_CODING_AGENT_DIR", &agent_dir)
-        .env("TMPDIR", dir.path())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for key in SCRUB_ENV {
-        daemon_command.env_remove(key);
-    }
-    // Teardown symmetry: the TS worker's orphan-exit window is the same env var.
-    daemon_command.env(
-        pa_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    // Install the guard before readiness checks so panics also reap the child.
-    let mut daemon = Daemon {
-        child: daemon_command.spawn().expect("spawn TS daemon"),
-        socket: socket.clone(),
-    };
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        if UnixStream::connect(&socket).is_ok() {
-            break;
-        }
-        assert!(
-            daemon.child.try_wait().expect("poll TS daemon").is_none(),
-            "TS daemon exited before becoming ready (check PA_TS_BINARY)"
-        );
-        assert!(Instant::now() < deadline, "TS daemon socket never appeared");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    let rust = PathBuf::from(env!("CARGO_BIN_EXE_prime-agent"));
-    let pair = CliPair {
-        ts: ts.clone(),
-        rust: rust.clone(),
-        dir: dir.path().to_path_buf(),
-        agent_dir: agent_dir.clone(),
-    };
-    let mut failures: Vec<String> = Vec::new();
-    let compare = |failures: &mut Vec<String>, ts_args: &[&str], rs_args: &[&str], label: &str| {
-        pair.compare(failures, ts_args, rs_args, label);
-    };
-
-    // Both CLIs against the same TS daemon: identical normalized output.
-    compare(&mut failures, &["list"], &["list"], "empty list");
-    let (mut wire, hello) = Wire::connect(&socket);
-    assert_eq!(hello["type"], "daemon_hello", "TS daemon hello");
-    let primary = create_session(&mut wire, "c1", "parity", &work, &sessions, None);
-    let secondary = create_session(&mut wire, "c2", "parity-b", &work, &sessions, None);
-    let tertiary = create_session(&mut wire, "c3", "parity-c", &work, &sessions, None);
-    compare(&mut failures, &["list"], &["list"], "session table");
-
-    let ts_list_json = run_cli(&ts, dir.path(), &agent_dir, &["list", "--json"]);
-    let rs_list_json = run_cli(&rust, dir.path(), &agent_dir, &["list", "--json"]);
-    let ts_json: Value = serde_json::from_str(&stdout(&ts_list_json)).expect("ts json");
-    let rs_json: Value = serde_json::from_str(&stdout(&rs_list_json)).expect("rust json");
-    if canonicalize(&ts_json) != canonicalize(&rs_json) {
-        failures.push(format!("list --json: ts {ts_json} vs rs {rs_json}"));
-    }
-
-    // The sessions operator table (TS #2422): the same list RPC as the one-line table.
-    compare(
-        &mut failures,
-        &["sessions"],
-        &["sessions"],
-        "sessions table",
-    );
-    compare(
-        &mut failures,
-        &["sessions", "--all"],
-        &["sessions", "--all"],
-        "sessions table --all",
-    );
-    compare(
-        &mut failures,
-        &["sessions", "--bogus"],
-        &["sessions", "--bogus"],
-        "sessions unknown option",
-    );
-    let ts_sessions_json = run_cli(&ts, dir.path(), &agent_dir, &["sessions", "--json"]);
-    let rs_sessions_json = run_cli(&rust, dir.path(), &agent_dir, &["sessions", "--json"]);
-    let ts_sessions: Value =
-        serde_json::from_str(&stdout(&ts_sessions_json)).expect("ts sessions json");
-    let rs_sessions: Value =
-        serde_json::from_str(&stdout(&rs_sessions_json)).expect("rust sessions json");
-    if canonicalize(&ts_sessions) != canonicalize(&rs_sessions) {
-        failures.push(format!(
-            "sessions --json: ts {ts_sessions} vs rs {rs_sessions}"
-        ));
-    }
-
-    let rename: Vec<&str> = vec!["rename", primary.as_str(), "parity-renamed"];
-    compare(&mut failures, &rename, &rename, "rename");
-    // Sends start a real turn, so each CLI sends to its own session; same receipt shape.
-    let ts_send = run_cli(
-        &ts,
-        dir.path(),
-        &agent_dir,
-        &["send", secondary.as_str(), "differential message"],
-    );
-    let rs_send = run_cli(
-        &rust,
-        dir.path(),
-        &agent_dir,
-        &["send", tertiary.as_str(), "differential message"],
-    );
-    if ts_send.status.code() != rs_send.status.code()
-        || !stdout(&ts_send).starts_with("Sent to ")
-        || !stdout(&rs_send).starts_with("Sent to ")
-    {
-        failures.push(format!(
-            "send: ts {:#?} vs rs {:#?}",
-            (ts_send.status.code(), stdout(&ts_send), stderr(&ts_send)),
-            (rs_send.status.code(), stdout(&rs_send), stderr(&rs_send))
-        ));
-    }
-    compare(
-        &mut failures,
-        &["schedule", "list"],
-        &["schedule", "list"],
-        "schedule list",
-    );
-    let add: Vec<&str> = vec![
-        "schedule",
-        "add",
-        primary.as_str(),
-        "every 10 minutes",
-        "--",
-        "differential job",
-    ];
-    compare(&mut failures, &add, &add, "schedule add");
-    compare(
-        &mut failures,
-        &["schedule", "list"],
-        &["schedule", "list"],
-        "schedule list after add",
-    );
-    compare(
-        &mut failures,
-        &["schedule", "list", "--all"],
-        &["schedule", "list", "--all"],
-        "schedule list --all",
-    );
-    compare(
-        &mut failures,
-        &["schedule", "list", "--json"],
-        &["schedule", "list", "--json"],
-        "schedule list --json",
-    );
-    // Cancel round-trip: each CLI cancels one job and both render the same emptied list.
-    let ts_schedule_json = run_cli(&ts, dir.path(), &agent_dir, &["schedule", "list", "--json"]);
-    let job_ids: Vec<String> = serde_json::from_str::<Value>(&stdout(&ts_schedule_json))
-        .expect("schedule list json")
-        .get("jobs")
-        .and_then(Value::as_array)
-        .expect("jobs array")
-        .iter()
-        .map(|job| job["id"].as_str().expect("job id").to_string())
-        .collect();
-    assert_eq!(job_ids.len(), 2, "one stored job per CLI add");
-    compare(
-        &mut failures,
-        &["schedule", "cancel", job_ids[0].as_str()],
-        &["schedule", "cancel", job_ids[1].as_str()],
-        "schedule cancel",
-    );
-    compare(
-        &mut failures,
-        &["schedule", "list"],
-        &["schedule", "list"],
-        "schedule list after cancel",
-    );
-    let socket_arg = socket.to_string_lossy().to_string();
-    compare(
-        &mut failures,
-        &["schedule", "cancel"],
-        &["schedule", "cancel"],
-        "schedule cancel without id",
-    );
-    compare(
-        &mut failures,
-        &["schedule", "cancel", "a", "b"],
-        &["schedule", "cancel", "a", "b"],
-        "schedule cancel with two ids",
-    );
-    compare(
-        &mut failures,
-        &["schedule", "list", "--bogus-flag"],
-        &["schedule", "list", "--bogus-flag"],
-        "schedule list unknown flag",
-    );
-    compare(
-        &mut failures,
-        &["--daemon-socket", socket_arg.as_str(), "schedule", "list"],
-        &["--daemon-socket", socket_arg.as_str(), "schedule", "list"],
-        "daemon-socket before schedule list",
-    );
-    compare(
-        &mut failures,
-        &[
-            "--daemon-socket",
-            socket_arg.as_str(),
-            "schedule",
-            "cancel",
-            "id",
-        ],
-        &[
-            "--daemon-socket",
-            socket_arg.as_str(),
-            "schedule",
-            "cancel",
-            "id",
-        ],
-        "daemon-socket before schedule cancel",
-    );
-    // TS stops the primary session, the Rust CLI the secondary: same golden output.
-    let ts_stop_args: Vec<&str> = vec!["stop", primary.as_str()];
-    let rust_stop_args: Vec<&str> = vec!["stop", tertiary.as_str()];
-    compare(&mut failures, &ts_stop_args, &rust_stop_args, "stop");
-
-    // Saved-session wake on the TS daemon: each CLI sends to its own stopped session;
-    // the compared observable is the receipt line shape.
-    let ts_wake = run_cli(
-        &ts,
-        dir.path(),
-        &agent_dir,
-        &["send", "parity-renamed", "wake from ts"],
-    );
-    let rs_wake = run_cli(
-        &rust,
-        dir.path(),
-        &agent_dir,
-        &["send", "parity-c", "wake from rs"],
-    );
-    if ts_wake.status.code() != rs_wake.status.code()
-        || stdout(&ts_wake) != "Sent to parity-renamed\n"
-        || stdout(&rs_wake) != "Sent to parity-c\n"
-    {
-        failures.push(format!(
-            "send wakes a saved session: ts {:#?} vs rs {:#?}",
-            (ts_wake.status.code(), stdout(&ts_wake), stderr(&ts_wake)),
-            (rs_wake.status.code(), stdout(&rs_wake), stderr(&rs_wake))
-        ));
-    }
-
-    drop(daemon);
-    assert!(
-        failures.is_empty(),
-        "TS differential mismatches:\n{}",
-        failures.join("\n---\n")
-    );
 }

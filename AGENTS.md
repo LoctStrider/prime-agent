@@ -21,10 +21,8 @@ Every contributor (human or agent) must read this before working on this repo.
   `gh pr create --repo PrimeIntellect-ai/prime-agent --base main`.
 - CI runs on the org's billing: `.github/workflows/continuous.yml` on `main` pushes and
   `release.yml` on version tags.
-- Parity ground truth is unchanged: a read-only checkout of the TS implementation (this
-  repo at tag `v0.9.8`, the last TS release before the Rust port merged to `main`). Clone
-  it to `~/prime-agent`, the conventional location the parity scripts and code fall back
-  to; tooling that honors an override reads `PA_TS_REFERENCE`.
+- The completed TypeScript implementation remains available at tag `v0.9.8` for
+  historical reference, not as the correctness standard for current Rust behavior.
 
 ## Style and structure
 
@@ -75,8 +73,8 @@ Every contributor (human or agent) must read this before working on this repo.
 - Bug fixes need a regression test that fails without the fix.
 - Keep test code in proportion to the change: one discriminating test per behavior change, not several that pin the same behavior or re-check behavior the PR does not change.
 - A new test file must be run by something: a runner, glob, loop, or run-time path in `.github/workflows/` or the Makefile. A name missing from those files can still be reached by a glob or a built path, so check those before calling a test unrun.
-- Verifiers over self-assessment: tmux user-level tests, differential tests against the TS binary
-  on PATH, golden corpora replayed against real captured data. No lane merges without its verifier
+- Verifiers over self-assessment: tmux user-level tests, Rust behavior tests, and golden
+  corpora replayed against real captured data. No lane merges without its verifier
   passing, rerun by the reviewer where feasible.
 - Tests must wait for observable readiness, not fixed sleeps or retry-to-green loops. If a
   test must be disabled, give a reason at the test. Use isolated ports and temporary paths, and
@@ -115,24 +113,16 @@ Rules:
   past 2,000 lines as review guidance; it never blocks a merge.
 - PRs that change shipped paths need a `.changes/<branch-slug>.md` fragment (one user-facing
   bullet; see `.changes/README.md`) or the `no-changelog` label; the changelog-fragment check enforces it.
-- **Parity-diff evidence is a merge gate** (the port's definition, not optional polish): every PR
-  that touches a user-visible surface must include a "parity-diff evidence" section in its
-  description showing the TS-binary comparison for what it changed: (1) rendered output —
-  frame-diff vs the TS binary;
-  (2) interactive behavior — the same input handled identically (keys, mouse, timing); 
-  (3) wire parity — byte-compare the TS daemon's traffic for protocol changes; (4) user-visible
-  invariants — every user action produces the same visible reaction as TS (`/compact` shows
-  started+completed; `/model` shows the selector; a refinement shows its decoration). A feature
-  that "works" but was never diffed against the TS binary does not pass review. If TS shows it,
-  Rust shows it identically; if Rust shows something TS does not, that is also a parity bug.
+- User-visible changes need evidence from current Rust behavior tests. Preserve supported
+  historical session formats, cross-version locks, and promised wire compatibility; these
+  contracts do not require matching the retired TypeScript release's output or command list.
 - PRs must state ownership compliance (crate README scope/non-goals/public API, dependency
   direction) and classify the change: internals, new `pub` surface, or a new
   dependency/cross-crate re-export. The latter two are architectural changes — an innocent-looking
   `pub use` is a very simple way to break encapsulation.
-- The compiled fallback model catalog `crates/pa-ai/src/models_generated.rs` is
-  hand-maintained Rust mirroring the TS `packages/ai/src/models.generated.ts` object
-  literal — edit it by hand, exactly like its TS source (there is no generator). The
-  parity fixture `crates/pa-models/tests/fixtures/catalog.v1.json` refreshes with
+- The compiled fallback model catalog and transport templates in
+  `crates/pa-ai/src/models_generated.rs` are hand-maintained Rust (there is no generator).
+  The catalog fixture `crates/pa-models/tests/fixtures/catalog.v1.json` refreshes with
   `scripts/generate-catalog-fixture.py`. Bulk data files are exempt from the size guidance.
 
 ## Branding
@@ -145,7 +135,7 @@ Prime Agent. Audit with a repo-wide grep and classify every hit (user-visible
 vs wire-internal vs comment) before scrubbing, and list the preserved wire
 identifiers in the PR body so the reviewer can verify none were wrongly scrubbed.
 
-EXPLICIT EXCEPTION: wire-protocol identifiers that must stay byte-compatible with the TS product (e.g. the PI_PACKAGE_DIR env var, settings keys, provider IDs like prime-inference, harness _meta namespaces like ai.primeintellect.prime-agent, lockfile names) stay until/unless the TS side renames them — PARITY BEATS BRANDING ON THE WIRE.
+EXPLICIT EXCEPTION: identifiers required by supported protocols and persisted formats (e.g. the PI_PACKAGE_DIR env var, settings keys, provider IDs like prime-inference, harness _meta namespaces like ai.primeintellect.prime-agent, lockfile names) stay unless deliberately migrated — compatibility beats branding on the wire.
 
 
 
