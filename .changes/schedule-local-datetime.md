@@ -1,0 +1,1 @@
+- Fixed schedule list timestamps to use the local time zone and locale date order and clock format.

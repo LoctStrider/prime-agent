@@ -610,40 +610,64 @@ fn format_agent_cron_job(job: &Value) -> String {
     )
 }
 
-/// `toLocaleString()` for a cron timestamp: en-US date with a 12-hour clock,
-/// e.g. `9/16/2026, 6:36:59 PM`. Rendered in UTC.
+/// Match the default locale and local time used by TS `Date.toLocaleString()`.
 fn cron_datetime(value: Option<&Value>) -> String {
-    let Some(value) = value.and_then(Value::as_str) else {
-        return "-".to_string();
-    };
-    let Some(ms) = crate::daemon_session_list::parse_iso_ms(value) else {
-        return "-".to_string();
-    };
-    let seconds_of_day = (ms / 1000) % 86_400;
-    let hour24 = seconds_of_day / 3600;
-    let minute = (seconds_of_day % 3600) / 60;
-    let second = seconds_of_day % 60;
-    let (hour12, meridiem) = match hour24 % 12 {
-        0 => (12, if hour24 < 12 { "AM" } else { "PM" }),
-        other => (other, if hour24 < 12 { "AM" } else { "PM" }),
-    };
-    let days = (ms / 1000) / 86_400;
-    let (year, month, day) = civil_from_days(days);
-    format!("{month}/{day}/{year}, {hour12}:{minute:02}:{second:02} {meridiem}")
-}
+    let formatted = (|| {
+        use icu_datetime::{
+            fieldsets::YMD,
+            input::{Date, DateTime, Time},
+            options::YearStyle,
+            DateTimeFormatter,
+        };
+        use icu_locale_core::Locale;
 
-/// Civil date from days since the epoch (Howard Hinnant's algorithm).
-fn civil_from_days(days: u64) -> (i64, u32, u32) {
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if month <= 2 { y + 1 } else { y }, month, day)
+        use chrono::{Datelike, Timelike};
+
+        let ms = crate::daemon_session_list::parse_iso_ms(value?.as_str()?)?;
+        let utc = chrono::DateTime::from_timestamp_millis(i64::try_from(ms).ok()?)?;
+        let local = utc.with_timezone(&chrono::Local);
+        // ICU (and Node) use LC_ALL, LC_MESSAGES, then LANG, not LC_TIME or LANGUAGE.
+        let tag = ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .find_map(|key| std::env::var(key).ok().filter(|value| !value.is_empty()))
+            .unwrap_or_default();
+        let tag = tag.split(['.', '@']).next()?.replace('_', "-");
+        let locale: Locale = if tag.is_empty() || tag == "C" || tag == "POSIX" {
+            "en-US".parse().ok()?
+        } else {
+            tag.parse().ok()?
+        };
+        let formatter = DateTimeFormatter::try_new(
+            locale.into(),
+            YMD::short()
+                .with_year_style(YearStyle::Full)
+                .with_time_hms(),
+        )
+        .ok()?;
+        let datetime = DateTime {
+            date: Date::try_new_iso(
+                local.year(),
+                u8::try_from(local.month()).ok()?,
+                u8::try_from(local.day()).ok()?,
+            )
+            .ok()?,
+            time: Time::try_new(
+                u8::try_from(local.hour()).ok()?,
+                u8::try_from(local.minute()).ok()?,
+                u8::try_from(local.second()).ok()?,
+                0,
+            )
+            .ok()?,
+        };
+        // Node emits ASCII space instead of CLDR's narrow no-break space before AM/PM.
+        Some(
+            formatter
+                .format(&datetime)
+                .to_string()
+                .replace('\u{202f}', " "),
+        )
+    })();
+    formatted.unwrap_or_else(|| "-".to_string())
 }
 
 #[cfg(test)]
@@ -715,18 +739,106 @@ mod tests {
     }
 
     #[test]
-    fn cron_job_line_matches_captured_ts_golden() {
-        let job = json!({
-            "id": "0451e5a9-951c-457b-ae76-ea3142ea5d25",
-            "status": "active",
-            "nextRunAt": "2026-09-16T18:36:59.287Z",
-            "runCount": 0,
-            "schedule": { "expression": "every 5 minutes" },
-            "prompt": "do   the thing",
-        });
-        assert_eq!(
-            format_agent_cron_job(&job),
-            "0451e5a9-951c-457b-ae76-ea3142ea5d25 active next=9/16/2026, 6:36:59 PM last=- runs=0 schedule=\"every 5 minutes\" prompt=\"do the thing\""
-        );
+    fn cron_datetime_locale_and_timezone() {
+        const CHILD: &str = "PA_CRON_DATETIME_EXPECTED";
+        if let Ok(expected) = std::env::var(CHILD) {
+            let expected: Vec<String> = serde_json::from_str(&expected).unwrap();
+            let timestamps = [
+                "2026-11-05T10:04:11Z",
+                "2026-11-05T20:04:11Z",
+                "2026-01-05T10:04:11Z",
+                "2026-07-05T10:04:11Z",
+            ];
+            let actual: Vec<String> = timestamps
+                .iter()
+                .map(|value| cron_datetime(Some(&json!(value))))
+                .collect();
+            assert_eq!(actual, expected);
+            let job = json!({
+                "id": "job", "status": "active", "runCount": 0,
+                "nextRunAt": timestamps[0], "lastRunAt": timestamps[1],
+                "lastSkippedAt": timestamps[2],
+                "schedule": { "expression": "every 5 minutes" }, "prompt": "do   the thing"
+            });
+            assert_eq!(format_agent_cron_job(&job), format!(
+                "job active next={} last={} skipped={} runs=0 schedule=\"every 5 minutes\" prompt=\"do the thing\"",
+                expected[0], expected[1], expected[2]));
+            assert_eq!(
+                [None, Some(&Value::Null), Some(&json!("bogus"))].map(cron_datetime),
+                ["-", "-", "-"]
+            );
+            return;
+        }
+        for (locale, zone, expected) in [
+            (
+                "en_US.UTF-8",
+                "UTC",
+                [
+                    "11/5/2026, 10:04:11 AM",
+                    "11/5/2026, 8:04:11 PM",
+                    "1/5/2026, 10:04:11 AM",
+                    "7/5/2026, 10:04:11 AM",
+                ],
+            ),
+            (
+                "en_US.UTF-8",
+                "Asia/Shanghai",
+                [
+                    "11/5/2026, 6:04:11 PM",
+                    "11/6/2026, 4:04:11 AM",
+                    "1/5/2026, 6:04:11 PM",
+                    "7/5/2026, 6:04:11 PM",
+                ],
+            ),
+            (
+                "zh_CN.UTF-8",
+                "UTC",
+                [
+                    "2026/11/5 10:04:11",
+                    "2026/11/5 20:04:11",
+                    "2026/1/5 10:04:11",
+                    "2026/7/5 10:04:11",
+                ],
+            ),
+            (
+                "zh_CN.UTF-8",
+                "Asia/Shanghai",
+                [
+                    "2026/11/5 18:04:11",
+                    "2026/11/6 04:04:11",
+                    "2026/1/5 18:04:11",
+                    "2026/7/5 18:04:11",
+                ],
+            ),
+            (
+                "en_US.UTF-8",
+                "America/New_York",
+                [
+                    "11/5/2026, 5:04:11 AM",
+                    "11/5/2026, 3:04:11 PM",
+                    "1/5/2026, 5:04:11 AM",
+                    "7/5/2026, 6:04:11 AM",
+                ],
+            ),
+        ] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "daemon_command::tests::cron_datetime_locale_and_timezone",
+                    "--nocapture",
+                ])
+                .env("LC_ALL", locale)
+                .env("LANG", locale)
+                .env("TZ", zone)
+                .env(CHILD, serde_json::to_string(&expected).unwrap())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{locale} {zone}: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 }

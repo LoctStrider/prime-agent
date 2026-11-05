@@ -393,8 +393,15 @@ impl CliPair {
     fn compare(&self, failures: &mut Vec<String>, ts_args: &[&str], rs_args: &[&str], label: &str) {
         let ts_out = run_cli(&self.ts, &self.dir, &self.agent_dir, ts_args);
         let rs_out = run_cli(&self.rust, &self.dir, &self.agent_dir, rs_args);
+        // These commands read the same stored jobs from one daemon. Their dates
+        // are not volatile: compare bytes so normalization cannot hide locale bugs.
+        let same_stdout = if matches!(label, "schedule list after add" | "schedule list --all") {
+            stdout(&ts_out) == stdout(&rs_out)
+        } else {
+            normalize(&stdout(&ts_out)) == normalize(&stdout(&rs_out))
+        };
         let ok = ts_out.status.code() == rs_out.status.code()
-            && normalize(&stdout(&ts_out)) == normalize(&stdout(&rs_out))
+            && same_stdout
             && normalize(&stderr(&ts_out)) == normalize(&stderr(&rs_out));
         if !ok {
             failures.push(format!(

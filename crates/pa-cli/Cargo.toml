@@ -17,6 +17,11 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# CLDR date/time ordering and hour cycles for JS toLocaleString parity.
+icu_datetime = { version = "2.3", default-features = false, features = ["compiled_data"] }
+icu_locale_core = "2.3"
+# Resolve the system offset at the scheduled instant, including DST.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [[bin]]
 name = "prime-agent"
