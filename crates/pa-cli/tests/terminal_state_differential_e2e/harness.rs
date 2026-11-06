@@ -186,6 +186,15 @@ impl Drop for DifferentialHarness {
     fn drop(&mut self) {
         // A panicking wait must never leak the pty child: it owns the
         // controlling terminal of its own session.
+        // The suspend route has a separate foreground group below its supervisor.
+        // SAFETY: tcgetpgrp queries only this harness's private pty.
+        let foreground = unsafe { libc::tcgetpgrp(self.master.file.as_raw_fd()) };
+        if foreground > 0 {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(-foreground),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -539,7 +548,17 @@ pub(crate) fn spawn_child(spec: &ChildSpec, socket: &Path, slave: &OwnedFd) -> C
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
-        .arg(child_mode_test_name(spec.mode))
+        .arg(
+            if spec
+                .env
+                .iter()
+                .any(|(key, _)| *key == "PA_DIFF_JOB_CONTROL")
+            {
+                "diff_job_control_supervisor_mode"
+            } else {
+                child_mode_test_name(spec.mode)
+            },
+        )
         .env(CHILD_MODE_ENV, spec.mode)
         .env(CHILD_SOCKET_ENV, socket);
     for (key, value) in &spec.env {

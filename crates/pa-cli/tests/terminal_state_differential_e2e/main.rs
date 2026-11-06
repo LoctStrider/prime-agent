@@ -541,6 +541,51 @@ fn the_pre_mount_daemon_refusal_arms_nothing() {
     let _ = child.wait();
 }
 
+/// Keep the foreground TUI group non-orphaned and mirror its stops to the runner.
+#[test]
+fn diff_job_control_supervisor_mode() {
+    if std::env::var("PA_DIFF_JOB_CONTROL").is_err() {
+        return;
+    }
+    let mut command = Command::new(std::env::current_exe().expect("test binary"));
+    command
+        .arg("--exact")
+        .arg("diff_chat_child_mode")
+        .env_remove("PA_DIFF_JOB_CONTROL");
+    // Put the actual TUI in its own foreground group so the supervisor can observe its stop.
+    unsafe {
+        command.pre_exec(|| {
+            libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+            if libc::setpgid(0, 0) < 0 || libc::tcsetpgrp(0, libc::getpid()) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            libc::signal(libc::SIGTTOU, libc::SIG_DFL);
+            libc::signal(libc::SIGTSTP, libc::SIG_DFL);
+            libc::signal(libc::SIGTTIN, libc::SIG_DFL);
+            Ok(())
+        });
+    }
+    // waitpid below reaps the child and observes job-control stops.
+    #[allow(clippy::zombie_processes)]
+    let child = command.spawn().expect("spawn foreground TUI");
+    let pid = Pid::from_raw(child.id() as i32);
+    loop {
+        match waitpid(pid, Some(WaitPidFlag::WUNTRACED)) {
+            Ok(WaitStatus::Stopped(_, _)) => {
+                // SAFETY: raise stops this supervisor thread before forwarding SIGCONT.
+                assert_eq!(unsafe { libc::raise(libc::SIGSTOP) }, 0);
+                kill(pid, Signal::SIGCONT).expect("resume foreground TUI");
+            }
+            Ok(WaitStatus::Exited(_, code)) => std::process::exit(code),
+            Ok(WaitStatus::Signaled(_, signal, _)) => {
+                std::process::exit(128 + signal as i32);
+            }
+            Err(nix::errno::Errno::EINTR) | Ok(WaitStatus::Continued(_)) => {}
+            status => panic!("unexpected foreground TUI status: {status:?}"),
+        }
+    }
+}
+
 /// Whether this runner has a controlling-terminal session (the suspend
 /// cycle's stop/continue needs one).
 fn sigtstp_session_runner() -> bool {
@@ -612,12 +657,9 @@ fn the_suspend_cycle_hands_a_whole_terminal_to_the_shell_and_back() {
     if !sigtstp_session_runner() || !sigtstp_stops_processes() {
         return;
     }
-    match nix::unistd::setsid() {
-        Ok(_) => {}
-        Err(error) => panic!("the harness could not start a fresh session: {error}"),
-    }
     let _lock = harness_lock();
-    let mut harness = DifferentialHarness::start(&ChildSpec::new("chat"));
+    let mut harness =
+        DifferentialHarness::start(&ChildSpec::new("chat").env("PA_DIFF_JOB_CONTROL", "1"));
     harness.answer_kitty_query();
     harness.wait_from_start(b"row 0", "the attach snapshot rendered");
     let child_id = harness.child.id();
