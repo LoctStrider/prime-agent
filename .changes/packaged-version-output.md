@@ -1,0 +1,1 @@
+- Fixed `prime-agent --version` to report its packaged version on stdout.

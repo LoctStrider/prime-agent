@@ -270,18 +270,20 @@ fn a_failing_installer_keeps_the_previous_install() {
 fn installer_env(command: &mut Command, sandbox: &Sandbox) {
     let shims = sandbox.root.join("shims");
     std::fs::create_dir_all(&shims).expect("shims dir");
-    let python = [
-        "/usr/bin/python3",
-        "/usr/local/bin/python3",
-        "/opt/homebrew/bin/python3",
-    ]
-    .into_iter()
-    .find(|path| Path::new(path).is_file())
-    .expect("a python3 for the installer's scripting steps");
+    let path = std::env::var_os("PATH").expect("PATH for installer tools");
+    let python = std::env::split_paths(&path)
+        .map(|dir| dir.join("python3"))
+        .find(|python| {
+            Command::new(python)
+                .arg("--version")
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+        .expect("a working python3 on PATH for the installer's scripting steps");
     let uv = shims.join("uv");
     std::fs::write(
         &uv,
-        format!("#!/bin/sh\n[ \"$1 $2\" = \"python find\" ] && echo {python} && exit 0\nexit 1\n"),
+        "#!/bin/sh\n[ \"$1 $2\" = \"python find\" ] && printf '%s\\n' \"$TEST_INSTALLER_PYTHON\" && exit 0\nexit 1\n",
     )
     .expect("uv shim");
     make_executable(&uv);
@@ -296,7 +298,12 @@ fn installer_env(command: &mut Command, sandbox: &Sandbox) {
     std::fs::create_dir_all(&tmp).expect("tmp dir");
     command
         .env_clear()
-        .env("PATH", format!("{}:/usr/bin:/bin", shims.display()))
+        .env(
+            "PATH",
+            std::env::join_paths(std::iter::once(shims).chain(std::env::split_paths(&path)))
+                .expect("installer PATH"),
+        )
+        .env("TEST_INSTALLER_PYTHON", python)
         .env("HOME", sandbox.root.join("home"))
         .env("TMPDIR", tmp)
         .env(ENV_PREFIX, &sandbox.prefix)

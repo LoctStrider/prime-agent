@@ -171,7 +171,8 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
 /// A stub `gh` binary: `auth status` succeeds, `gist create` requires the
 /// upload file and prints a gist URL. No upload ever leaves the box.
 fn write_stub_gh(dir: &Path) {
-    let script = r#"#!/bin/bash
+    let script = r#"#!/bin/sh
+printf '%s\n' "$1 $2" >> "$0.calls"
 case "$1" in
   auth) exit 0 ;;
   gist)
@@ -212,6 +213,7 @@ async fn tui_export_and_share_surface() {
     let previous_path = std::env::var("PATH").unwrap_or_default();
     let previous_viewer_url = std::env::var("PI_SHARE_VIEWER_URL").ok();
     std::env::set_var("PATH", format!("{}:{}", stub_dir.display(), previous_path));
+    std::env::remove_var("PI_SHARE_VIEWER_URL");
 
     // The faux engine (`engine: "faux"`) drives the real agent engine, so
     // the export embeds the real session's tools section.
@@ -372,6 +374,12 @@ async fn tui_export_and_share_surface() {
     assert!(
         jsonl.contains("say hi"),
         "branch export carries the turn:\n{jsonl}"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(stub_dir.join("gh.calls")).expect("stub gh calls"),
+        "auth status\ngist create\n",
+        "both gh commands must use the stub"
     );
 
     // The share rows: the stub gist URL surfaced as the viewer link.

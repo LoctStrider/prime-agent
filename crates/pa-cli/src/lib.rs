@@ -154,7 +154,8 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     if parsed.version {
-        print_cli_information(app_mode, crate::config::version());
+        // `--version` is a machine-readable probe used by installers and update checks.
+        println!("{}", crate::config::version());
         return Ok(0);
     }
     if parsed.help {
